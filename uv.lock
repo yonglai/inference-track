@@ -1162,6 +1162,10 @@ source = { virtual = "." }
 dependencies = [
     { name = "jupyter" },
     { name = "matplotlib" },
+    { name = "nvidia-cuda-cccl" },
+    { name = "nvidia-cuda-nvcc" },
+    { name = "nvidia-cuda-runtime", version = "13.0.96", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'darwin'" },
+    { name = "nvidia-cuda-runtime", version = "13.3.29", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
     { name = "vllm" },
 ]
 
@@ -1169,6 +1173,9 @@ dependencies = [
 requires-dist = [
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "matplotlib", specifier = ">=3.11.1" },
+    { name = "nvidia-cuda-cccl", specifier = ">=13.3.3.4.1" },
+    { name = "nvidia-cuda-nvcc", specifier = ">=13.3.73" },
+    { name = "nvidia-cuda-runtime", specifier = ">=13.0.96" },
     { name = "vllm", specifier = ">=0.27" },
 ]
 
