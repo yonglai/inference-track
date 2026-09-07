@@ -8,26 +8,26 @@ Single source of truth for every measurement in the 42-week plan.
 
 ## Machines
 
-| ID | Device | Accelerator | Memory | Backend | Cost |
-|----|--------|-------------|--------|---------|------|
-| `G1` | Alienware (desktop) | RTX 3080 10GB LHR, GA102, 8704 CUDA / 272 Tensor cores | 10 GB GDDR6X, 320-bit | CUDA | owned — **primary rig** |
-| `M1` | MacBook Pro | Apple M5 Pro | __ GB unified | MPS | owned — contrast case only |
-| `C1` | rented | (e.g. 1x A100 80GB SXM) | 80 GB | CUDA 12.x | $__/hr, provider __ |
+| ID   | Device              | Accelerator                                            | Memory                | Backend   | Cost                       |
+| ---- | ------------------- | ------------------------------------------------------ | --------------------- | --------- | -------------------------- |
+| `G1` | Alienware (desktop) | RTX 3080 10GB LHR, GA102, 8704 CUDA / 272 Tensor cores | 10 GB GDDR6X, 320-bit | CUDA      | owned — **primary rig**    |
+| `M1` | MacBook Pro         | Apple M5 Pro                                           | \_\_ GB unified       | MPS       | owned — contrast case only |
+| `C1` | rented              | (e.g. 1x A100 80GB SXM)                                | 80 GB                 | CUDA 12.x | $**/hr, provider **        |
 
 ### Peak theoretical — the ceilings
 
-| | `G1` RTX 3080 | `M1` M5 Pro |
-|---|---|---|
-| memory bandwidth | **760 GB/s** | ~307 GB/s |
-| FP32 compute | 29.8 TFLOP/s | ~8.3 TFLOP/s |
-| FP16 tensor (dense) | **59.5 TFLOP/s** | not published |
-| FP16 tensor (2:4 sparse) | 119 TFLOP/s | n/a |
+|                          | `G1` RTX 3080    | `M1` M5 Pro   |
+| ------------------------ | ---------------- | ------------- |
+| memory bandwidth         | **760 GB/s**     | ~307 GB/s     |
+| FP32 compute             | 29.8 TFLOP/s     | ~8.3 TFLOP/s  |
+| FP16 tensor (dense)      | **59.5 TFLOP/s** | not published |
+| FP16 tensor (2:4 sparse) | 119 TFLOP/s      | n/a           |
 
 **Roofline ridge point for `G1`:** 59.5 TFLOP/s / 760 GB/s = **~78 FLOP per byte**.
 
 - Kernel arithmetic intensity **below 78** -> memory-bound. Judge it against 760 GB/s.
 - **Above 78** -> compute-bound. Judge it against 59.5 TFLOP/s.
-- LLM decode sits around 1-2 FLOP/byte. It is *always* memory-bound. This is the
+- LLM decode sits around 1-2 FLOP/byte. It is _always_ memory-bound. This is the
   single fact the whole plan is built on.
 
 ### Notes on `G1`
@@ -67,24 +67,24 @@ ones are usually the ones that invalidate the result three months later.
 - Batch size / concurrency:
 - Input len -> output len:
 - Warmup iters / measured iters:
-- Explicit synchronize? (Y/N)  `torch.cuda.synchronize()`
+- Explicit synchronize? (Y/N) `torch.cuda.synchronize()`
 
 **Result**
 
-| Metric | Value | Unit |
-|--------|-------|------|
-| latency p50 | | ms |
-| latency p95 | | ms |
-| latency p99 | | ms |
-| TTFT p50 | | ms |
-| inter-token latency | | ms/tok |
-| throughput | | tok/s |
-| achieved bandwidth | | GB/s |
-| achieved compute | | TFLOP/s |
-| **% of peak** | | % |
+| Metric              | Value | Unit    |
+| ------------------- | ----- | ------- |
+| latency p50         |       | ms      |
+| latency p95         |       | ms      |
+| latency p99         |       | ms      |
+| TTFT p50            |       | ms      |
+| inter-token latency |       | ms/tok  |
+| throughput          |       | tok/s   |
+| achieved bandwidth  |       | GB/s    |
+| achieved compute    |       | TFLOP/s |
+| **% of peak**       |       | %       |
 
 **Baseline compared against:** link to a prior entry, or "none — this IS the baseline"
-**Delta:** +/- __% vs ____
+**Delta:** +/- **% vs \_\_**
 
 **Interpretation**
 
@@ -93,19 +93,15 @@ ones are usually the ones that invalidate the result three months later.
 
 **Surprises / what I got wrong**
 
--
+- **Confusions to revisit** (concepts that needed rewatching or rereading)
 
-**Confusions to revisit** (concepts that needed rewatching or rereading)
+- **Repro:** `command` · script `path/to/bench.py` · seed \_\_\_\_
 
--
-
-**Repro:** `command` · script `path/to/bench.py` · seed ____
-
----
+  ***
 
 ## Log
 
-### 2026-08-__ — Week 1 — Environment up
+### 2026-08-15 — Week 1 — Environment up
 
 **Machine:** G1 (primary) / M1 (secondary)
 **Question:** Is the GPU visible to PyTorch, and is this project reproducible?
@@ -118,10 +114,10 @@ ones are usually the ones that invalidate the result three months later.
 
 **Result**
 
-- `G1`: `torch.cuda.is_available()` -> ____
-- `G1`: `torch.cuda.get_device_name(0)` -> ____
-- `G1`: driver / CUDA runtime version -> ____
-- `M1`: `torch.backends.mps.is_available()` -> ____
+- `G1`: `torch.cuda.is_available()` -> \_\_True\_\_
+- `G1`: `torch.cuda.get_device_name(0)` -> \_\_NVIDIA GeForce RTX 3080\_\_
+- `G1`: driver / CUDA runtime version -> \_\_595.84\_\_
+- `M1`: `torch.backends.mps.is_available()` -> \_\_True\_\_
 
 **Notes**
 
@@ -130,8 +126,61 @@ ones are usually the ones that invalidate the result three months later.
 
 **Confusions to revisit**
 
--
+- ***
+
+## Environment — 2026-08-16
+
+**Machine:** g1 (Linux, EXT4, 27 GiB RAM)
+**GPU:** NVIDIA Ampere, sm_86 (compute 8.6), 9.64 GiB
+**Driver:** <nvidia-smi>
+**PyTorch:** <torch.**version**>, built against CUDA 13.0
+**System toolkit:** CUDA 13.3.1, CUDA_HOME=/usr/local/cuda-13.3
+
+- was 12.0 — three years behind PyTorch, caused the failure below
+- PATH exports in ~/.profile, pinned to explicit version not /usr/local/cuda
+  **Python:** 3.12, uv project at ~/projects/inference-track
+  **vLLM:** 0.27.1
+
+### Theoretical peaks (from spec sheet)
+
+- Memory bandwidth: \_\_706\_ GB/s
+- FP32 / BF16 TFLOPs: \_\_59.5\_
 
 ---
+
+## Issue 001 — FlashInfer JIT build failure (2026-08-16) — RESOLVED
+
+**Symptom:** `vllm serve Qwen/Qwen3-1.7B` fails at warmup.
+Model loads, KV cache allocates, CUDA graphs capture — dies on sampler warmup.
+`error: cub::_V_300302_SM_860::BlockAdjacentDifference has no member "FlagHeads"`
+
+**Cause:** FlashInfer JIT-compiles its sampling kernel and injects its own
+bundled CCCL 3.3.2 via `-I`. CUB removed `FlagHeads` in CCCL 3.0. The
+version-selection shim appears to key off toolkit version (12.0) rather than
+the CCCL actually on the include path, so it emitted a call to a removed API.
+
+**Workaround:** `VLLM_USE_FLASHINFER_SAMPLER=0` (native PyTorch sampler,
+negligible cost at this scale)
+**Fix:** upgraded system toolkit 12.0 → 13.3.1
+**Confirmed:** sampler compiles without the env var — yes / no
+
+**Lesson:** "CUDA version" is three independent things — driver, the runtime
+PyTorch ships with, and the toolkit at /usr/bin/nvcc. Only JIT paths touch
+the third. Everything else ran fine on a 3-year-old toolkit because it never
+compiled anything. Will recur with Triton in Phase 3.
+
+---
+
+## Measurements
+
+### 2026-08-16 — vLLM baseline, Qwen3-1.7B
+
+Config: --max-model-len 4096 --gpu-memory-utilization 0.85
+
+- Weights + non-torch: 3.52 GiB
+- Peak activation: 0.09 GiB
+- CUDA graphs: 0.47 GiB
+- KV cache: 4.58 GiB → 42,880 tokens → 10.47x concurrency at 4K
+- Model load: 3.14 s | torch.compile: 0.15 s (AOT cache hit) | graphs: 3 s
 
 <!-- New entries go ABOVE this line, newest last. Keep it chronological. -->
