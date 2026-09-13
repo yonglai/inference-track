@@ -12,3 +12,8 @@ dependencies = [
     "nvidia-cuda-runtime>=13.0.96",
     "vllm>=0.27",
 ]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+]

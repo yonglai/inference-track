@@ -17,4 +17,4 @@ t_mm = timed(lambda: a @ b)
 t_add = timed(lambda: a + b)
 
 print(f"matmul {2*N**3/t_mm/1e12:8.2f} TFLOP/s      ({2*N**3/t_mm/1e12/59.5*100:.1f}% of peak)")
-print(f"add {3*N*N*2/t_add/1e9:8.2f} GB/s           ({3*N*N*2/t_add/1e9/706*100:.1f}% of peak)")
+print(f"add {3*N*N*2/t_add/1e9:8.2f} GB/s           ({3*N*N*2/t_add/1e9/760*100:.1f}% of peak)")

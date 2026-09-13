@@ -1169,6 +1169,11 @@ dependencies = [
     { name = "vllm" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "ipykernel" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "jupyter", specifier = ">=1.1.1" },
@@ -1178,6 +1183,9 @@ requires-dist = [
     { name = "nvidia-cuda-runtime", specifier = ">=13.0.96" },
     { name = "vllm", specifier = ">=0.27" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ipykernel", specifier = ">=7.3.0" }]
 
 [[package]]
 name = "interegular"
