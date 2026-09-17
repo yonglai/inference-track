@@ -177,7 +177,7 @@ ones are usually the ones that invalidate the result three months later.
 
 ### Theoretical peaks (from spec sheet)
 
-- Memory bandwidth: \_\_706\_ GB/s
+- Memory bandwidth: \_\_760\_ GB/s
 - FP32 / BF16 TFLOPs: \_\_59.5\_
 
 ---
