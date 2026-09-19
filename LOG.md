@@ -178,7 +178,7 @@ ones are usually the ones that invalidate the result three months later.
 ### Theoretical peaks (from spec sheet)
 
 - Memory bandwidth: \_\_760\_ GB/s
-- FP32 / BF16 TFLOPs: \_\_59.5\_
+- FP32 / BF16 TFLOPs: \_\_29.8\_
 
 ---
 
@@ -389,5 +389,178 @@ matter for timing).
   (`64x64_32x6_nn` vs `wmma 32x32_32x1_tn`). Unexplained, not settled.
 - Whether the remaining 46-53%-of-peak on the GEMMs is shape-driven or
   something addressable.
+
+### 2026-09-17 — Week 6 — Prefill vs decode: TTFT / ITL instrumentation
+
+**Machine:** G1
+**Question:** Can I predict batch-1 decode throughput from model size and memory bandwidth, and does the measurement agree?
+
+**Setup**
+
+- Model / kernel: `EleutherAI/pythia-410m` (24 layers, hidden 1024, 16 heads × 64, vocab 50304)
+- Framework + version: torch 2.13.0+cu130, transformers (HF `AutoModelForCausalLM`), CUDA runtime 13.0
+- Precision: bf16 (verified via `p.dtype` over all parameters — uniform)
+- Batch size / concurrency: 1
+- Input len -> output len: 512 -> 64
+- Warmup iters / measured iters: 3 warmup (full `measure()` call, incl. tokenizer init) / 5 reps
+- Explicit synchronize? **Y** — `torch.cuda.synchronize()` at both ends of every timed region
+- Decoding: greedy (`argmax`), EOS ignored, fixed token count so every run is comparable
+- Prompt: repeated-token filler, round-trip asserted to land within ±2 of 512 tokens
+
+**Result**
+
+| Metric                        | Value  | Unit    |
+| ----------------------------- | ------ | ------- |
+| TTFT p50                      | 13.37  | ms      |
+| — of which tokenize           | 0.78   | ms      |
+| — of which prefill            | 12.52  | ms      |
+| — of which sample + detokenize| 0.06   | ms      |
+| inter-token latency p50       | 8.53   | ms/tok  |
+| inter-token latency p95        | 8.58   | ms/tok  |
+| throughput (decode only)      | 117    | tok/s   |
+| achieved bandwidth (weights)  | 83     | GB/s    |
+| achieved bandwidth (+KV)      | 89     | GB/s    |
+| **% of peak** (vs 610 measured) | **14** | %     |
+| % of peak (vs 760 theoretical)| 11     | %       |
+
+Model bytes, measured not assumed:
+
+| Quantity                          | Bytes    |
+| --------------------------------- | -------- |
+| all parameters                    | 0.811 GB |
+| `embed_in` (row lookup, not read) | 0.103 GB |
+| **decode-relevant weights**       | **0.708 GB** |
+| KV cache at position 512          | 0.050 GB |
+| KV cache at position 575          | 0.057 GB |
+
+`embed_in` is excluded because decode indexes a single 1024-element row (~2 KB), not the
+51.5M-parameter table. `embed_out` is **not** excluded — pythia does not tie embeddings,
+and the lm_head is a full matmul against all 50304 rows every step.
+
+**Baseline compared against:** none — this IS the baseline for batch-1 HF decode.
+**Delta:** n/a
+
+---
+
+**Interpretation**
+
+**Prediction:** 610 GB/s ÷ 0.708 GB ≈ **861 tok/s** (≈ 805 tok/s including KV cache traffic).
+**Measured:** 117 tok/s. **The prediction misses by ~7×.** Done-When asked for ±30%.
+
+Per-token cost, prefill vs decode:
+
+```
+prefill:  12.52 ms / 512 tokens =  24.4 µs per token
+decode:    8.53 ms /   1 token  = 8530   µs per token   → 350× more expensive
+```
+
+**Compute-bound or memory-bound? Neither — overhead-bound.** Four independent lines of
+evidence:
+
+1. **ITL tracks layer count, not bytes.** Size sweep at 512→64:
+
+   | model  | layers | hidden | ITL     | tok/s | ms per layer |
+   | ------ | ------ | ------ | ------- | ----- | ------------ |
+   | 160m   | 12     | 768    | 4.69 ms | 213.0 | 0.39         |
+   | 410m   | 24     | 1024   | 8.71 ms | 114.7 | 0.36         |
+   | 1.4b   | 24     | 2048   | 8.66 ms | 114.5 | 0.36         |
+
+   410m and 1.4b share 24 layers and land within 0.6% of each other despite 1.4b moving
+   ~3.6× the bytes. If decode were bandwidth-bound, 1.4b would be ~3.6× slower. Per-layer
+   cost is flat at ~0.36 ms across a 15× range in model size.
+
+2. **GPU is idle two thirds of the time.** Profiler on one decode step: Self CUDA total
+   2.995 ms against a measured ITL of 8.71 ms → **34% GPU utilization**.
+
+3. **The host can barely feed the device.** 565 `cudaLaunchKernel` calls per decode step
+   (23.5 per layer), 2.808 ms of CPU time, **4.97 µs per launch** — essentially equal to
+   the 5.3 µs average GPU execution time per kernel.
+
+4. **15.6% of GPU time computes nothing.** `CatArrayBatch` — 120 calls, 466 µs — is
+   `DynamicCache` reallocating and copying the KV cache every step, five times per layer.
+
+GPU time breakdown for one decode step (Self CUDA 2.995 ms total):
+
+| Kernel                    | Calls | Time   | Share | What it is                |
+| ------------------------- | ----- | ------ | ----- | ------------------------- |
+| cutlass wmma bf16         | 48    | 737 µs | 24.6% | MLP matmuls (2/layer)     |
+| gemvx                     | 48    | 533 µs | 17.8% | QKV + output projections  |
+| **CatArrayBatch**         | 120   | 466 µs | 15.6% | **KV cache concatenation**|
+| flash_fwd_splitkv         | 24    | 261 µs |  8.7% | attention                 |
+| elementwise (assorted)    | ~250  | ~460 µs| ~15%  | norms, residuals, rotary  |
+| gemv2T                    | 1     | 147 µs |  4.9% | lm_head                   |
+
+Real matmul work totals ~1.68 ms — **56% of GPU time**. The rest is bookkeeping.
+
+**Why is it not faster? Name the bottleneck:** kernel launch overhead and per-kernel
+ramp-up at batch 1. 565 tiny kernels per token, each doing a matrix-vector product that
+finishes in microseconds. The memory system never reaches steady-state streaming, so the
+roofline's bandwidth ceiling is never approached.
+
+---
+
+**Surprises / what I got wrong**
+
+- **The plan's premise needs a qualifier.** LOG.md states decode "is _always_ memory-bound."
+  True about arithmetic intensity (~2 FLOP/byte), false about what actually limits batch-1
+  HF decode. Bandwidth is the *ceiling*; launch overhead is the *floor I am sitting on*.
+  The roofline model assumes one resource is saturated — at batch 1, neither is.
+
+- **Smaller models are less hardware-efficient, not more.** Achieved bandwidth rises with
+  model size: ~49% of 610 GB/s at 1.4b, ~14% at 410m, lower still at 160m (byte counts for
+  160m/1.4b are estimates — recompute with `element_size()` before quoting). 160m wins on
+  tok/s while wasting most of the card, because a fixed per-layer cost is amortized over
+  less useful work. "Smaller model, faster inference" is true in tok/s and badly false in
+  utilization.
+
+- **Predicted 10 kernels/layer from the architecture; actual is 23.5.** Estimate was 2.4×
+  low. Do not reason about launch counts from op counts — profile them.
+
+- **A first-call tokenizer cost of ~6.7 ms exists** and is entirely absorbed by warmup
+  (measured 0.06 ms in steady state). Lazy init in the Rust tokenizer backend.
+
+- **Two ITL outliers across 315 measurements:** 11.18 ms (rep 1, token 7) and 8.88 ms
+  (rep 2, token 35), against a median of 8.53. Single occurrences, not reproducible.
+  Unattributed — CUDA-event timing would separate host stall from device stall.
+  Kept the full ITL vector precisely so these stayed visible; a mean would have hidden them.
+
+- **Reproducibility was better than expected.** Prefill across 5 independent reps:
+  12.5111 / 12.5150 / 12.5160 / 12.5178 / 12.5186 ms — 0.06% spread.
+
+**Confusions to revisit**
+
+- The lm_head at 147 µs for ~103 MB implies ~700 GB/s, **above** the 610 GB/s measured
+  ceiling. Either the byte estimate is wrong or there is cache reuse. Reconcile — this is
+  the one kernel in the profile that looks bandwidth-saturating, so it would make a useful
+  reference for what "good" looks like on this card.
+- 0.36 ms per layer at ~23.5 kernels is ~15 µs per kernel, above the typical 5–10 µs launch
+  cost. Launch overhead explains much of the gap but possibly not all of it. Nsight Systems
+  (Week 28) will show whether the remainder is gaps between kernels or slow kernels.
+
+**Next actions**
+
+1. Prompt-length sweep (128 / 512 / 1024 / 2048) — confirm TTFT scales ~linearly and ITL
+   stays flat. Method bullet 2 is still one data point.
+2. `StaticCache` instead of `DynamicCache` — preallocates, writes in place. Should remove
+   ~120 launches and ~466 µs per token. Directly testable with this harness.
+3. CUDA graph capture of the decode step — replays 565 launches as one submission. Expected
+   to remove most of the 2.808 ms host cost. This is what the 0.47 GiB of CUDA graphs in the
+   Week 1 vLLM baseline was buying.
+4. Add `torch.cuda.Event` timing alongside `perf_counter` in the decode loop — separates
+   host launch time from device execution time by measurement rather than inference.
+
+**Harness limitations (recorded now, relevant in Phase 2)**
+
+- Filler prompt is repeated tokens; greedy decode on it produces degenerate output. Fine
+  for timing (content does not affect cost), wrong for anything where sequences must finish
+  at different times.
+- `tok.decode` is inside the timed decode region — CPU work a real server pays, but it means
+  ITL is not pure GPU decode. Unmeasured; run once with it commented out to size the gap.
+- Batch size hardcoded to 1. Batching moves decode from matrix-vector to matrix-matrix and
+  shifts it right on the roofline — the whole point of Phase 2.
+
+**Repro:** `python bench_ttft_itl.py` · script `bench_ttft_itl.py` · greedy, no seed needed
+(deterministic) · kernel `Python (mlops-jupyter)`
+
 
 <!-- New entries go ABOVE this line, newest last. Keep it chronological. -->

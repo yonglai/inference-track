@@ -159,11 +159,15 @@ def run(model_id: str, prompt_tokens: int, gen_tokens: int,
 
 
 if __name__ == "__main__":
-    out = run("EleutherAI/pythia-410m", prompt_tokens=512, gen_tokens=64)
-    with open("bench_ttft_itl.json", "w") as f:
-        json.dump(out, f, indent=2)
+    # out = run("EleutherAI/pythia-410m", prompt_tokens=512, gen_tokens=64)
+    # with open("bench_ttft_itl.json", "w") as f:
+    #     json.dump(out, f, indent=2)
 
-    for r in out["runs"]:
-        print(f"TTFT {r['ttft_ms']:6.2f} ms   "
-            f"ITL {r['itl_median_ms']:5.2f} ms   "
-            f"{r['decode_tok_per_s']:6.1f} tok/s")
+    # for r in out["runs"]:
+    #     print(f"TTFT {r['ttft_ms']:6.2f} ms   "
+    #         f"ITL {r['itl_median_ms']:5.2f} ms   "
+    #         f"{r['decode_tok_per_s']:6.1f} tok/s")
+    for m in ["EleutherAI/pythia-160m", "EleutherAI/pythia-410m", "EleutherAI/pythia-1.4b"]:
+        out = run(m, prompt_tokens=512, gen_tokens=64, reps=3)
+        r = out["runs"][0]
+        print(f"{m:30s} ITL {r['itl_median_ms']:6.2f} ms  {r['decode_tok_per_s']:6.1f} tok/s")
