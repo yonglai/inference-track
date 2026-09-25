@@ -1,0 +1,133 @@
+{
+  "torch": "2.13.0+cu130",
+  "model": "EleutherAI/pythia-410m",
+  "prompt": "the",
+  "prompt_tokens": 512,
+  "gen_tokens": 64,
+  "emulate_casts": false,
+  "itl_ms": {
+    "DynamicCache eager": 8.651826999994228,
+    "StaticCache eager": 9.643987000345078,
+    "StaticCache compiled": 3.2210009994741995,
+    "StaticCache +graph": 2.8361920003590058
+  },
+  "profile": {
+    "DynamicCache eager": {
+      "launches": 654,
+      "graph_launches": 0,
+      "gpu_us": 3518.6710000000508
+    },
+    "StaticCache eager": {
+      "launches": 692,
+      "graph_launches": 0,
+      "gpu_us": 3474.418000000007
+    },
+    "StaticCache compiled": {
+      "launches": 73,
+      "graph_launches": 0,
+      "gpu_us": 2606.749
+    },
+    "StaticCache +graph": {
+      "launches": 1,
+      "graph_launches": 1,
+      "gpu_us": 2543.870000000005
+    }
+  },
+  "graph_rerun_max_abs_diff": 0.0,
+  "vs_dynamic": {
+    "StaticCache eager": {
+      "kl_mean": 0.0024053750094026327,
+      "kl_max": 0.09040357917547226,
+      "flips": [
+        20
+      ],
+      "flip_gap_ulp": [
+        1.0
+      ]
+    },
+    "StaticCache compiled": {
+      "kl_mean": 0.008106039837002754,
+      "kl_max": 0.38323110342025757,
+      "flips": [
+        20,
+        29
+      ],
+      "flip_gap_ulp": [
+        1.0,
+        1.0
+      ]
+    },
+    "StaticCache +graph": {
+      "kl_mean": 0.008106039837002754,
+      "kl_max": 0.38323110342025757,
+      "flips": [
+        20,
+        29
+      ],
+      "flip_gap_ulp": [
+        1.0,
+        1.0
+      ]
+    }
+  },
+  "vs_fp32": {
+    "DynamicCache eager": {
+      "kl_mean": 0.003978991415351629,
+      "kl_max": 0.1069595217704773,
+      "kl_argmax_step": 54,
+      "flips": [
+        17,
+        20,
+        49
+      ],
+      "flip_gap_ulp": [
+        0.08,
+        0.13,
+        1.69
+      ]
+    },
+    "StaticCache eager": {
+      "kl_mean": 0.0020186402834951878,
+      "kl_max": 0.007912788540124893,
+      "kl_argmax_step": 0,
+      "flips": [
+        17,
+        49
+      ],
+      "flip_gap_ulp": [
+        0.08,
+        1.69
+      ]
+    },
+    "StaticCache compiled": {
+      "kl_mean": 0.012828442268073559,
+      "kl_max": 0.4533067047595978,
+      "kl_argmax_step": 1,
+      "flips": [
+        17,
+        29,
+        49
+      ],
+      "flip_gap_ulp": [
+        0.08,
+        0.11,
+        1.69
+      ]
+    },
+    "StaticCache +graph": {
+      "kl_mean": 0.012828442268073559,
+      "kl_max": 0.4533067047595978,
+      "kl_argmax_step": 1,
+      "flips": [
+        17,
+        29,
+        49
+      ],
+      "flip_gap_ulp": [
+        0.08,
+        0.11,
+        1.69
+      ]
+    }
+  }
+}

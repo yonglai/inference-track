@@ -1,0 +1,514 @@
+{
+  "torch": "2.13.0+cu130",
+  "model": "EleutherAI/pythia-410m",
+  "prompt": "real",
+  "prompt_tokens": 512,
+  "gen_tokens": 64,
+  "emulate_casts": false,
+  "isolate_layer": 5,
+  "steps": {
+    "1": {
+      "kl": {
+        "dynamic": 0.002974576083943248,
+        "static": 0.003487884998321533,
+        "compiled": 0.0029380610212683678
+      },
+      "layers": [
+        {
+          "what": "embeddings",
+          "max_abs": 0.106689453125,
+          "dynamic": 0.0016741225263103843,
+          "static": 0.0016741225263103843,
+          "compiled": 0.0016741225263103843
+        },
+        {
+          "what": "after layer 0",
+          "max_abs": 1.9958983659744263,
+          "dynamic": 0.004475484602153301,
+          "static": 0.004396434407681227,
+          "compiled": 0.004035746678709984
+        },
+        {
+          "what": "after layer 1",
+          "max_abs": 6.838564872741699,
+          "dynamic": 0.005820212885737419,
+          "static": 0.0058926185593008995,
+          "compiled": 0.00522214500233531
+        },
+        {
+          "what": "after layer 2",
+          "max_abs": 10.873234748840332,
+          "dynamic": 0.0060812849551439285,
+          "static": 0.005936664994806051,
+          "compiled": 0.0052814302034676075
+        },
+        {
+          "what": "after layer 3",
+          "max_abs": 11.607044219970703,
+          "dynamic": 0.006519243586808443,
+          "static": 0.0062799290753901005,
+          "compiled": 0.0057836007326841354
+        },
+        {
+          "what": "after layer 4",
+          "max_abs": 13.92727279663086,
+          "dynamic": 0.006647498346865177,
+          "static": 0.0066118561662733555,
+          "compiled": 0.006479161791503429
+        },
+        {
+          "what": "after layer 5",
+          "max_abs": 12.460638046264648,
+          "dynamic": 0.008419670164585114,
+          "static": 0.008391751907765865,
+          "compiled": 0.008171887136995792
+        },
+        {
+          "what": "after layer 6",
+          "max_abs": 10.266395568847656,
+          "dynamic": 0.009532037191092968,
+          "static": 0.009192964062094688,
+          "compiled": 0.008686442859470844
+        },
+        {
+          "what": "after layer 7",
+          "max_abs": 9.103368759155273,
+          "dynamic": 0.0103323208168149,
+          "static": 0.01096570398658514,
+          "compiled": 0.01185621414333582
+        },
+        {
+          "what": "after layer 8",
+          "max_abs": 8.08021068572998,
+          "dynamic": 0.012770133092999458,
+          "static": 0.011933661065995693,
+          "compiled": 0.013334088958799839
+        },
+        {
+          "what": "after layer 9",
+          "max_abs": 7.581233501434326,
+          "dynamic": 0.013262943364679813,
+          "static": 0.012639452703297138,
+          "compiled": 0.01445791870355606
+        },
+        {
+          "what": "after layer 10",
+          "max_abs": 7.295740604400635,
+          "dynamic": 0.014729775488376617,
+          "static": 0.013865652494132519,
+          "compiled": 0.01572171039879322
+        },
+        {
+          "what": "after layer 11",
+          "max_abs": 8.540582656860352,
+          "dynamic": 0.013523944653570652,
+          "static": 0.012031445279717445,
+          "compiled": 0.013712621293962002
+        },
+        {
+          "what": "after layer 12",
+          "max_abs": 7.635326862335205,
+          "dynamic": 0.013433207757771015,
+          "static": 0.012516454793512821,
+          "compiled": 0.013494904153048992
+        },
+        {
+          "what": "after layer 13",
+          "max_abs": 3.785046100616455,
+          "dynamic": 0.015368706546723843,
+          "static": 0.016963208094239235,
+          "compiled": 0.015743063762784004
+        },
+        {
+          "what": "after layer 14",
+          "max_abs": 3.200373649597168,
+          "dynamic": 0.049192313104867935,
+          "static": 0.048991572111845016,
+          "compiled": 0.047395847737789154
+        },
+        {
+          "what": "after layer 15",
+          "max_abs": 5.3038649559021,
+          "dynamic": 0.06323158740997314,
+          "static": 0.06328590959310532,
+          "compiled": 0.062355272471904755
+        },
+        {
+          "what": "after layer 16",
+          "max_abs": 3.488334894180298,
+          "dynamic": 0.045788269490003586,
+          "static": 0.04637393355369568,
+          "compiled": 0.04524116963148117
+        },
+        {
+          "what": "after layer 17",
+          "max_abs": 9.342643737792969,
+          "dynamic": 0.05197473242878914,
+          "static": 0.05319139361381531,
+          "compiled": 0.050869762897491455
+        },
+        {
+          "what": "after layer 18",
+          "max_abs": 6.680373191833496,
+          "dynamic": 0.038473110646009445,
+          "static": 0.03676250949501991,
+          "compiled": 0.03772293031215668
+        },
+        {
+          "what": "after layer 19",
+          "max_abs": 9.369084358215332,
+          "dynamic": 0.04922566935420036,
+          "static": 0.049779247492551804,
+          "compiled": 0.04953654855489731
+        },
+        {
+          "what": "after layer 20",
+          "max_abs": 10.354463577270508,
+          "dynamic": 0.04847797006368637,
+          "static": 0.04758767411112785,
+          "compiled": 0.0519537515938282
+        },
+        {
+          "what": "after layer 21",
+          "max_abs": 11.297563552856445,
+          "dynamic": 0.12133589386940002,
+          "static": 0.1166984885931015,
+          "compiled": 0.12029476463794708
+        },
+        {
+          "what": "after layer 22",
+          "max_abs": 12.813011169433594,
+          "dynamic": 0.11813905835151672,
+          "static": 0.11485868692398071,
+          "compiled": 0.12274463474750519
+        },
+        {
+          "what": "after final norm",
+          "max_abs": 19.836185455322266,
+          "dynamic": 0.2065761536359787,
+          "static": 0.19404305517673492,
+          "compiled": 0.2247956544160843
+        }
+      ],
+      "backends": {
+        "FLASH_ATTENTION": {
+          "dynamic": {
+            "layer_out_rel": 0.008419670164585114,
+            "kl": 0.002974576083943248
+          },
+          "static": {
+            "error": "No available kernel. Aborting execution."
+          }
+        },
+        "EFFICIENT_ATTENTION": {
+          "dynamic": {
+            "layer_out_rel": 0.008008294738829136,
+            "kl": 0.0003145648224744946
+          },
+          "static": {
+            "layer_out_rel": 0.008008294738829136,
+            "kl": 0.0003145648224744946
+          }
+        },
+        "MATH": {
+          "dynamic": {
+            "layer_out_rel": 0.008056008256971836,
+            "kl": 0.0013469420373439789
+          },
+          "static": {
+            "layer_out_rel": 0.008056008256971836,
+            "kl": 0.0013469420373439789
+          }
+        }
+      },
+      "pieces": {
+        "ln1": {
+          "eager_rel": 0.0017612880328670144,
+          "compiled_rel": 0.0017612880328670144
+        },
+        "ln2": {
+          "eager_rel": 0.0024136691354215145,
+          "compiled_rel": 0.0024136691354215145
+        },
+        "mlp_up_gelu": {
+          "eager_rel": 0.004526978358626366,
+          "compiled_rel": 0.004526978358626366
+        },
+        "mlp": {
+          "eager_rel": 0.004820624366402626,
+          "compiled_rel": 0.004820624366402626
+        },
+        "residual": {
+          "eager_rel": 0.0022574032191187143,
+          "compiled_rel": 0.0019246371230110526
+        },
+        "residual_ln[0]": {
+          "eager_rel": 0.0033363488037139177,
+          "compiled_rel": 0.0029912367463111877
+        },
+        "residual_ln[1]": {
+          "eager_rel": 0.0029924348928034306,
+          "compiled_rel": 0.002318795071914792
+        }
+      }
+    },
+    "54": {
+      "kl": {
+        "dynamic": 0.01638469099998474,
+        "static": 0.020980311557650566,
+        "compiled": 0.016769710928201675
+      },
+      "layers": [
+        {
+          "what": "embeddings",
+          "max_abs": 0.1683349609375,
+          "dynamic": 0.0017033322947099805,
+          "static": 0.0017033322947099805,
+          "compiled": 0.0017033322947099805
+        },
+        {
+          "what": "after layer 0",
+          "max_abs": 5.052893161773682,
+          "dynamic": 0.0052691055461764336,
+          "static": 0.005273930728435516,
+          "compiled": 0.0037817733827978373
+        },
+        {
+          "what": "after layer 1",
+          "max_abs": 7.367538928985596,
+          "dynamic": 0.006656018551439047,
+          "static": 0.006294616963714361,
+          "compiled": 0.004949410445988178
+        },
+        {
+          "what": "after layer 2",
+          "max_abs": 10.644359588623047,
+          "dynamic": 0.006262407172471285,
+          "static": 0.005763530265539885,
+          "compiled": 0.005130871199071407
+        },
+        {
+          "what": "after layer 3",
+          "max_abs": 11.183414459228516,
+          "dynamic": 0.007361581549048424,
+          "static": 0.006326230242848396,
+          "compiled": 0.00698332441970706
+        },
+        {
+          "what": "after layer 4",
+          "max_abs": 11.946698188781738,
+          "dynamic": 0.008401286788284779,
+          "static": 0.006812926381826401,
+          "compiled": 0.006698468700051308
+        },
+        {
+          "what": "after layer 5",
+          "max_abs": 9.974552154541016,
+          "dynamic": 0.009924137964844704,
+          "static": 0.008384905755519867,
+          "compiled": 0.007015998940914869
+        },
+        {
+          "what": "after layer 6",
+          "max_abs": 11.279666900634766,
+          "dynamic": 0.011269266717135906,
+          "static": 0.008487722836434841,
+          "compiled": 0.007300442084670067
+        },
+        {
+          "what": "after layer 7",
+          "max_abs": 10.996259689331055,
+          "dynamic": 0.011432341299951077,
+          "static": 0.010381637141108513,
+          "compiled": 0.008707674220204353
+        },
+        {
+          "what": "after layer 8",
+          "max_abs": 10.460550308227539,
+          "dynamic": 0.01219265628606081,
+          "static": 0.01130683533847332,
+          "compiled": 0.009564900770783424
+        },
+        {
+          "what": "after layer 9",
+          "max_abs": 6.9765706062316895,
+          "dynamic": 0.014225422404706478,
+          "static": 0.014941249042749405,
+          "compiled": 0.010469857603311539
+        },
+        {
+          "what": "after layer 10",
+          "max_abs": 3.575225353240967,
+          "dynamic": 0.0169320497661829,
+          "static": 0.019974026829004288,
+          "compiled": 0.01487976685166359
+        },
+        {
+          "what": "after layer 11",
+          "max_abs": 7.886303901672363,
+          "dynamic": 0.020973317325115204,
+          "static": 0.023282868787646294,
+          "compiled": 0.01589333266019821
+        },
+        {
+          "what": "after layer 12",
+          "max_abs": 9.39261245727539,
+          "dynamic": 0.018389344215393066,
+          "static": 0.020034585148096085,
+          "compiled": 0.015106054954230785
+        },
+        {
+          "what": "after layer 13",
+          "max_abs": 3.7590370178222656,
+          "dynamic": 0.017512578517198563,
+          "static": 0.019314659759402275,
+          "compiled": 0.018969649448990822
+        },
+        {
+          "what": "after layer 14",
+          "max_abs": 4.860152721405029,
+          "dynamic": 0.06671746075153351,
+          "static": 0.06630802154541016,
+          "compiled": 0.06612753868103027
+        },
+        {
+          "what": "after layer 15",
+          "max_abs": 6.410991668701172,
+          "dynamic": 0.06982915848493576,
+          "static": 0.06988677382469177,
+          "compiled": 0.06931674480438232
+        },
+        {
+          "what": "after layer 16",
+          "max_abs": 4.610301494598389,
+          "dynamic": 0.05512822046875954,
+          "static": 0.05588395893573761,
+          "compiled": 0.059849705547094345
+        },
+        {
+          "what": "after layer 17",
+          "max_abs": 13.19851303100586,
+          "dynamic": 0.07199329882860184,
+          "static": 0.07286791503429413,
+          "compiled": 0.09450763463973999
+        },
+        {
+          "what": "after layer 18",
+          "max_abs": 6.680262565612793,
+          "dynamic": 0.06305647641420364,
+          "static": 0.06086591258645058,
+          "compiled": 0.0766671672463417
+        },
+        {
+          "what": "after layer 19",
+          "max_abs": 11.618370056152344,
+          "dynamic": 0.05645474046468735,
+          "static": 0.056239187717437744,
+          "compiled": 0.06863180547952652
+        },
+        {
+          "what": "after layer 20",
+          "max_abs": 11.759681701660156,
+          "dynamic": 0.06056669354438782,
+          "static": 0.057389166206121445,
+          "compiled": 0.0673486664891243
+        },
+        {
+          "what": "after layer 21",
+          "max_abs": 12.072319984436035,
+          "dynamic": 0.07976717501878738,
+          "static": 0.08882211893796921,
+          "compiled": 0.07790295779705048
+        },
+        {
+          "what": "after layer 22",
+          "max_abs": 9.761653900146484,
+          "dynamic": 0.11650416254997253,
+          "static": 0.12106301635503769,
+          "compiled": 0.10518787056207657
+        },
+        {
+          "what": "after final norm",
+          "max_abs": 25.170738220214844,
+          "dynamic": 0.26611289381980896,
+          "static": 0.25696074962615967,
+          "compiled": 0.2526208460330963
+        }
+      ],
+      "backends": {
+        "FLASH_ATTENTION": {
+          "dynamic": {
+            "layer_out_rel": 0.009924137964844704,
+            "kl": 0.01638469099998474
+          },
+          "static": {
+            "error": "No available kernel. Aborting execution."
+          }
+        },
+        "EFFICIENT_ATTENTION": {
+          "dynamic": {
+            "layer_out_rel": 0.009401017799973488,
+            "kl": 0.008921843022108078
+          },
+          "static": {
+            "layer_out_rel": 0.009401017799973488,
+            "kl": 0.008921843022108078
+          }
+        },
+        "MATH": {
+          "dynamic": {
+            "layer_out_rel": 0.009300337173044682,
+            "kl": 0.0025866671930998564
+          },
+          "static": {
+            "layer_out_rel": 0.009300337173044682,
+            "kl": 0.0025866671930998564
+          }
+        }
+      },
+      "pieces": {
+        "ln1": {
+          "eager_rel": 0.0020605900790542364,
+          "compiled_rel": 0.0020605900790542364
+        },
+        "ln2": {
+          "eager_rel": 0.0022483321372419596,
+          "compiled_rel": 0.0022483321372419596
+        },
+        "mlp_up_gelu": {
+          "eager_rel": 0.004558368120342493,
+          "compiled_rel": 0.004558364395052195
+        },
+        "mlp": {
+          "eager_rel": 0.004487225785851479,
+          "compiled_rel": 0.004487324971705675
+        },
+        "residual": {
+          "eager_rel": 0.00254925643093884,
+          "compiled_rel": 0.0023718057200312614
+        },
+        "residual_ln[0]": {
+          "eager_rel": 0.0034696992952376604,
+          "compiled_rel": 0.0027811867184937
+        },
+        "residual_ln[1]": {
+          "eager_rel": 0.003487442387267947,
+          "compiled_rel": 0.0026717919390648603
+        }
+      }
+    }
+  },
+  "attention_kernels": {
+    "dynamic": [
+      "void pytorch_flash::flash_fwd_splitkv_combine_kernel<Flash_fwd_kernel_traits<64, 64, 256, ",
+      "void pytorch_flash::flash_fwd_splitkv_kernel<Flash_fwd_kernel_traits<64, 64, 256, 4, false"
+    ],
+    "static": [
+      "fmha_cutlassF_bf16_aligned_64x64_rf_sm80(PyTorchMemEffAttention::AttentionKernel<cutlass::"
+    ],
+    "compiled": [
+      "fmha_cutlassF_bf16_aligned_64x64_rf_sm80(PyTorchMemEffAttention::AttentionKernel<cutlass::",
+      "triton_poi_fused__scaled_dot_product_efficient_attention_add_arange_expand_le_scalar_tenso"
+    ]
+  }
+}

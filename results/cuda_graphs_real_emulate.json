@@ -1,0 +1,87 @@
+{
+  "torch": "2.13.0+cu130",
+  "model": "EleutherAI/pythia-410m",
+  "prompt": "real",
+  "prompt_tokens": 512,
+  "gen_tokens": 64,
+  "emulate_casts": true,
+  "itl_ms": {
+    "DynamicCache eager": 8.472387999972852,
+    "StaticCache eager": 9.554227000080573,
+    "StaticCache compiled": 3.063572999963071,
+    "StaticCache +graph": 2.8045819999533705
+  },
+  "profile": {
+    "DynamicCache eager": {
+      "launches": 654,
+      "graph_launches": 0,
+      "gpu_us": 3538.801999999977
+    },
+    "StaticCache eager": {
+      "launches": 692,
+      "graph_launches": 0,
+      "gpu_us": 3479.974000000012
+    },
+    "StaticCache compiled": {
+      "launches": 73,
+      "graph_launches": 0,
+      "gpu_us": 2564.169000000012
+    },
+    "StaticCache +graph": {
+      "launches": 1,
+      "graph_launches": 1,
+      "gpu_us": 2492.8150000000005
+    }
+  },
+  "graph_rerun_max_abs_diff": 0.0,
+  "vs_dynamic": {
+    "StaticCache eager": {
+      "kl_mean": 0.002021585591137409,
+      "kl_max": 0.023508425801992416,
+      "flips": [],
+      "flip_gap_ulp": []
+    },
+    "StaticCache compiled": {
+      "kl_mean": 0.002146534388884902,
+      "kl_max": 0.043900661170482635,
+      "flips": [],
+      "flip_gap_ulp": []
+    },
+    "StaticCache +graph": {
+      "kl_mean": 0.002146534388884902,
+      "kl_max": 0.043900661170482635,
+      "flips": [],
+      "flip_gap_ulp": []
+    }
+  },
+  "vs_fp32": {
+    "DynamicCache eager": {
+      "kl_mean": 0.004868212155997753,
+      "kl_max": 0.05834314972162247,
+      "kl_argmax_step": 31,
+      "flips": [],
+      "flip_gap_ulp": []
+    },
+    "StaticCache eager": {
+      "kl_mean": 0.003467768430709839,
+      "kl_max": 0.033007483929395676,
+      "kl_argmax_step": 31,
+      "flips": [],
+      "flip_gap_ulp": []
+    },
+    "StaticCache compiled": {
+      "kl_mean": 0.003985606133937836,
+      "kl_max": 0.03312881290912628,
+      "kl_argmax_step": 31,
+      "flips": [],
+      "flip_gap_ulp": []
+    },
+    "StaticCache +graph": {
+      "kl_mean": 0.003985606133937836,
+      "kl_max": 0.03312881290912628,
+      "kl_argmax_step": 31,
+      "flips": [],
+      "flip_gap_ulp": []
+    }
+  }
+}

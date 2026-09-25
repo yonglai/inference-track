@@ -1,0 +1,87 @@
+{
+  "torch": "2.13.0+cu130",
+  "model": "EleutherAI/pythia-410m",
+  "prompt": "real",
+  "prompt_tokens": 512,
+  "gen_tokens": 64,
+  "emulate_casts": false,
+  "itl_ms": {
+    "DynamicCache eager": 8.572287000788492,
+    "StaticCache eager": 9.523157999865361,
+    "StaticCache compiled": 3.1930180002746056,
+    "StaticCache +graph": 2.8232280001248
+  },
+  "profile": {
+    "DynamicCache eager": {
+      "launches": 654,
+      "graph_launches": 0,
+      "gpu_us": 3503.1989999999964
+    },
+    "StaticCache eager": {
+      "launches": 692,
+      "graph_launches": 0,
+      "gpu_us": 3455.4909999999877
+    },
+    "StaticCache compiled": {
+      "launches": 73,
+      "graph_launches": 0,
+      "gpu_us": 2597.5569999999934
+    },
+    "StaticCache +graph": {
+      "launches": 1,
+      "graph_launches": 1,
+      "gpu_us": 2517.2729999999924
+    }
+  },
+  "graph_rerun_max_abs_diff": 0.0,
+  "vs_dynamic": {
+    "StaticCache eager": {
+      "kl_mean": 0.002021585591137409,
+      "kl_max": 0.023508425801992416,
+      "flips": [],
+      "flip_gap_ulp": []
+    },
+    "StaticCache compiled": {
+      "kl_mean": 0.002424895530566573,
+      "kl_max": 0.015576126053929329,
+      "flips": [],
+      "flip_gap_ulp": []
+    },
+    "StaticCache +graph": {
+      "kl_mean": 0.002424895530566573,
+      "kl_max": 0.015576126053929329,
+      "flips": [],
+      "flip_gap_ulp": []
+    }
+  },
+  "vs_fp32": {
+    "DynamicCache eager": {
+      "kl_mean": 0.004868212155997753,
+      "kl_max": 0.05834314972162247,
+      "kl_argmax_step": 31,
+      "flips": [],
+      "flip_gap_ulp": []
+    },
+    "StaticCache eager": {
+      "kl_mean": 0.003467768430709839,
+      "kl_max": 0.033007483929395676,
+      "kl_argmax_step": 31,
+      "flips": [],
+      "flip_gap_ulp": []
+    },
+    "StaticCache compiled": {
+      "kl_mean": 0.004678819328546524,
+      "kl_max": 0.08831724524497986,
+      "kl_argmax_step": 31,
+      "flips": [],
+      "flip_gap_ulp": []
+    },
+    "StaticCache +graph": {
+      "kl_mean": 0.004678819328546524,
+      "kl_max": 0.08831724524497986,
+      "kl_argmax_step": 31,
+      "flips": [],
+      "flip_gap_ulp": []
+    }
+  }
+}
