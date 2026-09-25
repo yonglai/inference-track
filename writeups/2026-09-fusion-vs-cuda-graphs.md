@@ -133,15 +133,15 @@ Every variant is teacher-forced on the same token sequence, so one changed predi
 
 ```bash
 # performance + accuracy, both prompts, flag on and off
-uv run python bench_cuda_graphs.py --real-prompt
-uv run python bench_cuda_graphs.py --real-prompt --no-emulate
-uv run python bench_cuda_graphs.py
-uv run python bench_cuda_graphs.py --no-emulate
+uv run python bench/bench_cuda_graphs.py --real-prompt
+uv run python bench/bench_cuda_graphs.py --real-prompt --no-emulate
+uv run python bench/bench_cuda_graphs.py
+uv run python bench/bench_cuda_graphs.py --no-emulate
 
 # layer-by-layer investigation and attention-kernel sweep
-uv run python investigate_fusion.py [--real-prompt] [--emulate]
+uv run python bench/investigate_fusion.py [--real-prompt] [--emulate]
 ```
 
-- Scripts: [`bench_cuda_graphs.py`](../bench_cuda_graphs.py), [`investigate_fusion.py`](../investigate_fusion.py)
+- Scripts: [`bench_cuda_graphs.py`](../bench/bench_cuda_graphs.py), [`investigate_fusion.py`](../bench/investigate_fusion.py)
 - Raw results: [`results/`](../results/)
 - Full lab notes, including dead ends: [`LOG.md`](../LOG.md)
