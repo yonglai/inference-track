@@ -14,6 +14,7 @@ Four variants, same model, same prompt, each adding one optimization:
 
 Performance, per variant: median ITL over `reps` runs, plus kernel launches,
 graph launches, and GPU busy time for ONE decode step (prefill excluded).
+Timing does not depend on prompt content, only on its length.
 
 Correctness: every variant is fed the same token sequence (teacher forcing,
 so one flipped argmax cannot cascade) and its logits compared against
@@ -23,30 +24,42 @@ so one flipped argmax cannot cascade) and its logits compared against
     enough to judge which bf16 path strays further.
 
 Metrics: per-step KL divergence (weights each token by its probability),
-max logit difference over the reference's top-10 tokens, and argmax flips.
-The graph path is also run twice to confirm replay is deterministic.
+max logit difference over the reference's top-10 tokens, argmax flips, and
+for each flip the reference's top-2 gap measured in bf16 ULPs. The graph
+path is also run twice to confirm replay is deterministic.
 
-Inductor precision: by default Inductor may round fused intermediates
-differently from eager, which rounds to bf16 after every op. Runs set
-torch._inductor.config.emulate_precision_casts = True unless --no-emulate
-is passed. The flag is read at compile time, so the two settings need
-separate runs.
+Prompt: 512 repeated " the" tokens by default. That input makes attention
+unusually sensitive to accumulation order (investigate_fusion.py showed
+correct attention kernels disagreeing by 25x in KL on it), so accuracy
+numbers from it are not characteristic of the model. --real-prompt uses
+ordinary prose of the same length instead.
+
+Inductor precision: runs set torch._inductor.config.emulate_precision_casts
+= True unless --no-emulate is passed. The flag is read at compile time, so
+the two settings need separate runs.
 
 Usage:
-    uv run python bench_cuda_graphs.py                # emulate casts (default)
-    uv run python bench_cuda_graphs.py --no-emulate   # Inductor default rounding
+    uv run python bench_cuda_graphs.py                              # " the", emulate
+    uv run python bench_cuda_graphs.py --no-emulate
+    uv run python bench_cuda_graphs.py --real-prompt                # prose, emulate
+    uv run python bench_cuda_graphs.py --real-prompt --no-emulate
 
-Writes cuda_graphs_emulate.json or cuda_graphs_noemulate.json.
+Writes cuda_graphs_<the|real>_<emulate|noemulate>.json.
 """
 import json
+import math
 import sys
 import time
+
 import torch
+from torch.profiler import ProfilerActivity, profile
 from transformers import AutoModelForCausalLM, AutoTokenizer, StaticCache
-from torch.profiler import profile, ProfilerActivity
 
 
 # ----------------------------------------------------------------- timing
+
+from pathlib import Path
+RESULTS = Path(__file__).resolve().parent.parent / "results"
 
 def _sync(device):
     if device.type == "cuda":
@@ -68,9 +81,66 @@ class Clock:
         return False
 
 
+# ----------------------------------------------------------------- prompts
+
 def make_prompt(tok, n_tokens):
+    """n_tokens repetitions of " the" -- controls length, content irrelevant to timing."""
     ids = tok(" the" * (n_tokens * 2))["input_ids"][:n_tokens]
     prompt = tok.decode(ids)
+    actual = len(tok(prompt)["input_ids"])
+    assert abs(actual - n_tokens) <= 2, f"got {actual}, wanted {n_tokens}"
+    return prompt
+
+
+# Original prose, written for these scripts. Varied vocabulary so attention
+# sees a realistic spread of keys, unlike 512 copies of " the".
+REAL_TEXT = """\
+The town of Harrowmere grew up where two slow rivers met, and for most of its \
+history the rivers decided everything. They decided where the mills stood, which \
+families prospered, and which fields flooded every spring. The oldest maps show a \
+ferry crossing near the chapel, a timber footbridge further east, and a row of \
+warehouses built on stilts along the northern bank. Merchants arrived by barge in \
+the autumn, carrying salt, iron nails, bolts of wool and barrels of pickled fish, \
+and they left with grain, leather and the pale clay that local potters dug from \
+the riverbed.
+
+By the middle of the last century the ferry had been replaced by a stone bridge \
+with three arches, and the warehouses had become apartments. The mills fell silent \
+one after another. The largest was converted into a library, and the smaller ones \
+into workshops for carpenters, printers and a family that repaired clocks. Visitors \
+who came for the market on Saturdays often stayed to walk the towpath, which \
+follows the southern river for nearly eleven kilometres before it reaches the \
+reservoir.
+
+The reservoir itself was controversial. Engineers argued that it would end the \
+spring floods, while farmers worried that it would starve the lower fields of the \
+silt that made them fertile. Both groups turned out to be partly right. The floods \
+became rare, but yields in the lowest meadows declined slowly over twenty years, \
+and several farms switched from barley to grazing sheep. A committee was formed to \
+study the problem; it met every second Tuesday, published a long report, and \
+recommended releasing controlled pulses of water each March.
+
+Today the town depends on a mixture of tourism, light manufacturing and commuting. \
+A regional train stops four times a day, and the station cafe is known for its \
+lemon cake and its unreliable heating. The primary school has two hundred pupils, \
+a small orchard, and a weather station that the older children maintain. Every \
+June the town holds a regatta on the confluence, with races for rowing boats, \
+canoes and a final contest in which teams build rafts from barrels and planks and \
+try to cross without sinking.
+
+Historians who study Harrowmere tend to agree on one point: the town survived \
+because it adapted slowly rather than quickly. Each change, from the bridge to the \
+reservoir, was argued over for years before it happened, and by the time it \
+arrived most people had already found a way to live with it.
+"""
+
+
+def make_real_prompt(tok, n_tokens):
+    """REAL_TEXT truncated to n_tokens; repeated only if it runs short."""
+    ids = tok(REAL_TEXT)["input_ids"]
+    while len(ids) < n_tokens:
+        ids = ids + ids
+    prompt = tok.decode(ids[:n_tokens])
     actual = len(tok(prompt)["input_ids"])
     assert abs(actual - n_tokens) <= 2, f"got {actual}, wanted {n_tokens}"
     return prompt
@@ -99,7 +169,6 @@ def run_dynamic(model, input_ids, gen_tokens, device, **_):
         itl.append(c.dt)
         ids.append(next_id.item())
     return itl, ids
-
 
 
 @torch.inference_mode()
@@ -172,6 +241,9 @@ def profile_one_step(model, input_ids, device, cache=None, fwd=None):
                  if e.device_type == torch.autograd.DeviceType.CUDA)
     return launches, graph_launches, gpu_us
 
+
+# ----------------------------------------------------------------- accuracy
+
 @torch.inference_mode()
 def logits_trace(model, input_ids, forced, device, cache=None, fwd=None):
     """Feed a fixed token sequence; return the logits row at each step."""
@@ -203,42 +275,65 @@ def logits_trace(model, input_ids, forced, device, cache=None, fwd=None):
             rows.append(out.logits[0, -1].float().cpu())
     return torch.stack(rows)
 
+
+def bf16_ulp(x):
+    """Spacing between adjacent bf16 values at magnitude |x| (7 stored mantissa bits)."""
+    x = abs(x)
+    return 2.0 ** (math.floor(math.log2(x)) - 7) if x > 0 else 2.0 ** -133
+
+
 def kl_report(name, ref, got):
+    """KL, top-10 logit difference, and argmax flips of `got` against `ref`.
+
+    For each flip, reports the reference's top-2 gap in bf16 ULPs: a flip at
+    0-2 ULPs is a near-tie broken differently; a flip at a large gap would be
+    a genuine disagreement.
+    """
     p = ref.log_softmax(-1)
     q = got.log_softmax(-1)
     kl = (p.exp() * (p - q)).sum(-1)
     top10 = ref.topk(10, dim=-1).indices
     top_diff = (got.gather(-1, top10) - ref.gather(-1, top10)).abs().max(-1).values
     flips = (got.argmax(-1) != ref.argmax(-1)).nonzero().flatten().tolist()
+
+    flip_ulps = []
+    for s in flips:
+        v = ref[s].topk(2).values
+        flip_ulps.append(round((v[0] - v[1]).item() / bf16_ulp(v[1].item()), 2))
+
     print(f"{name:22s} KL max {kl.max():.2e} @step {kl.argmax().item():2d}   "
-          f"mean {kl.mean():.2e}   top-10 |Δ| {top_diff.max():.4f}   flips {flips}")
-    return kl
+          f"mean {kl.mean():.2e}   top-10 |Δ| {top_diff.max():.4f}   "
+          f"flips {flips}  gap(ULP) {flip_ulps}")
+    return kl, flips, flip_ulps
+
 
 # ----------------------------------------------------------------- main
 
 def main(model_id="EleutherAI/pythia-410m", prompt_tokens=512, gen_tokens=64,
          dtype=torch.bfloat16, device_str="cuda", warmup=3, reps=5,
-         emulate_casts=True):
+         emulate_casts=True, real_prompt=False):
     device = torch.device(device_str)
+    prompt_kind = "real" if real_prompt else "the"
+
+    torch._inductor.config.emulate_precision_casts = emulate_casts
+    print(f"torch {torch.__version__}   emulate_precision_casts={emulate_casts}   "
+          f"prompt={prompt_kind}")
+
     tok = AutoTokenizer.from_pretrained(model_id)
     model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype).to(device).eval()
 
-    prompt = make_prompt(tok, prompt_tokens)
+    prompt = (make_real_prompt if real_prompt else make_prompt)(tok, prompt_tokens)
     input_ids = tok(prompt, return_tensors="pt").to(device)["input_ids"]
 
     max_len = prompt_tokens + gen_tokens + 8
     cache_eager = StaticCache(config=model.config, max_cache_len=max_len)
+    cache_nograph = StaticCache(config=model.config, max_cache_len=max_len)
     cache_graph = StaticCache(config=model.config, max_cache_len=max_len)
 
-    torch._inductor.config.emulate_precision_casts = emulate_casts
-    print(f"torch {torch.__version__}   emulate_precision_casts={emulate_casts}")
-
+    # Inductor kernels, but NO CUDA graph capture -- isolates fusion from replay.
+    compiled_nograph = torch.compile(model.forward, mode="default", fullgraph=True)
     # reduce-overhead == CUDA graphs. Needs StaticCache (fixed shapes).
     compiled = torch.compile(model.forward, mode="reduce-overhead", fullgraph=True)
-
-    # Inductor kernels, but NO CUDA graph capture — isolates the two
-    compiled_nograph = torch.compile(model.forward, mode="default", fullgraph=True)
-    cache_nograph = StaticCache(config=model.config, max_cache_len=max_len)
 
     variants = [
         ("DynamicCache eager",   run_dynamic, dict()),
@@ -247,6 +342,7 @@ def main(model_id="EleutherAI/pythia-410m", prompt_tokens=512, gen_tokens=64,
         ("StaticCache +graph",   run_static,  dict(cache=cache_graph, fwd=compiled)),
     ]
 
+    # ---- timing
     results, token_ids = {}, {}
     for name, fn, kw in variants:
         for _ in range(warmup):
@@ -260,6 +356,7 @@ def main(model_id="EleutherAI/pythia-410m", prompt_tokens=512, gen_tokens=64,
         token_ids[name] = ids
         results[name] = sorted(meds)[len(meds) // 2]
 
+    # ---- profiling
     profile_rows = {}
     print(f"{'variant':22s} {'ITL':>9s} {'tok/s':>8s} {'launches':>9s} "
           f"{'graphs':>7s} {'GPU us':>8s}")
@@ -271,7 +368,9 @@ def main(model_id="EleutherAI/pythia-410m", prompt_tokens=512, gen_tokens=64,
         print(f"{name:22s} {itl:7.3f}ms {1e3/itl:8.1f} {launches:9d} "
               f"{graphs:7d} {gpu:8.0f}")
 
+    # ---- accuracy
     forced = token_ids["DynamicCache eager"]
+    print(f"\ngenerated (DynamicCache eager): {tok.decode(forced)!r}")
 
     # fp32 reference: ~16 more bits of precision than bf16. Not "truth",
     # but close enough to judge which bf16 path strays further from it.
@@ -290,28 +389,44 @@ def main(model_id="EleutherAI/pythia-410m", prompt_tokens=512, gen_tokens=64,
     print(f"\ngraph path, run vs rerun: max |Δlogit| {rerun:.4f}")
 
     print("\n--- each variant vs bf16 DynamicCache eager ---")
+    vs_dynamic = {}
     for n, t in traces.items():
         if n != "DynamicCache eager":
-            kl_report(n, traces["DynamicCache eager"], t)
+            k, flips, ulps = kl_report(n, traces["DynamicCache eager"], t)
+            vs_dynamic[n] = {"kl_mean": k.mean().item(), "kl_max": k.max().item(),
+                             "flips": flips, "flip_gap_ulp": ulps}
 
     print("\n--- each bf16 variant vs fp32 reference ---")
-    kls = {n: kl_report(n, truth, t) for n, t in traces.items()}
+    vs_fp32 = {}
+    kls = {}
+    for n, t in traces.items():
+        k, flips, ulps = kl_report(n, truth, t)
+        kls[n] = k
+        vs_fp32[n] = {"kl_mean": k.mean().item(), "kl_max": k.max().item(),
+                      "kl_argmax_step": k.argmax().item(),
+                      "flips": flips, "flip_gap_ulp": ulps}
 
     print("\n--- per-step KL vs fp32 ---")
-    for n, kl in kls.items():
-        print(f"{n:22s}", " ".join(f"{x:.0e}" for x in kl.tolist()))
+    for n, k in kls.items():
+        print(f"{n:22s}", " ".join(f"{x:.0e}" for x in k.tolist()))
 
-    with open(f"cuda_graphs_{'emulate' if emulate_casts else 'noemulate'}.json", "w") as f:
+
+    RESULTS.mkdir(exist_ok=True)
+    fname = RESULTS / f"cuda_graphs_{prompt_kind}_{'emulate' if emulate_casts else 'noemulate'}.json"
+    with open(fname, "w") as f:
         json.dump({"torch": torch.__version__, "model": model_id,
+                   "prompt": prompt_kind,
                    "prompt_tokens": prompt_tokens, "gen_tokens": gen_tokens,
                    "emulate_casts": emulate_casts,
                    "itl_ms": results,
                    "profile": profile_rows,
                    "graph_rerun_max_abs_diff": rerun,
-                   "kl_vs_fp32": {n: {"mean": k.mean().item(), "max": k.max().item(),
-                                      "argmax_step": k.argmax().item()}
-                                  for n, k in kls.items()}},
+                   "vs_dynamic": vs_dynamic,
+                   "vs_fp32": vs_fp32},
                   f, indent=2)
+    print(f"\nwrote {fname}")
+
 
 if __name__ == "__main__":
-    main(emulate_casts="--no-emulate" not in sys.argv)
+    main(emulate_casts="--no-emulate" not in sys.argv,
+         real_prompt="--real-prompt" in sys.argv)
