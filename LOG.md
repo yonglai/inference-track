@@ -562,12 +562,12 @@ roofline's bandwidth ceiling is never approached.
 **Repro:** `python bench_ttft_itl.py` · script `bench_ttft_itl.py` · greedy, no seed needed
 (deterministic) · kernel `Python (mlops-jupyter)`
 
-### 2026-09-22 — Week 6 — Removing launch overhead: fusion, CUDA graphs, and what they cost in accuracy
+### 2026-09-24 — Week 6 — Removing launch overhead: fusion, CUDA graphs, and what they cost in accuracy
 
 **Machine:** G1
 **Question:** The 2026-09-17 entry concluded batch-1 decode is overhead-bound (565 launches/token, GPU busy 34%). If so, removing per-kernel launch cost should recover most of the gap between ITL and actual GPU time. Does it, which technique does the work, and does it change the model's output?
 
-> Supersedes the earlier draft of this entry, which attributed the speedup to CUDA graphs and called the accuracy differences bf16 noise. Both claims were wrong in ways the fuller experiment below shows.
+> Supersedes the 2026-09-22 drafts of this entry. Those attributed the speedup to CUDA graphs (it is mostly fusion), and measured accuracy only on a repeated-token prompt, which turned out to exaggerate every accuracy difference. Accuracy conclusions below are from ordinary prose; the repeated-token results are kept as a stress test.
 
 **Setup**
 
@@ -576,123 +576,160 @@ roofline's bandwidth ceiling is never approached.
 - Precision: bf16 (fp32 copy loaded separately as accuracy reference)
 - Batch size / concurrency: 1
 - Input len -> output len: 512 -> 64
+- Prompts: `real` — ~500 words of original prose; `the` — 512 repetitions of " the"
 - Warmup iters / measured iters: 3 / 5, all variants
 - Explicit synchronize? **Y**
-- Script: `bench_cuda_graphs.py` · results: `cuda_graphs_emulate.json`, `cuda_graphs_noemulate.json`
+- Scripts: `bench_cuda_graphs.py`, `investigate_fusion.py`
+- Results: `cuda_graphs_{real,the}_{emulate,noemulate}.json`, `investigate_{real,the}_{emulate,noemulate}.json`
 
 Four variants, each adding one change to the one before:
 
-| Variant | Cache | Execution |
-| --- | --- | --- |
-| DynamicCache eager | grows by `torch.cat` each step | one kernel launch per op |
-| StaticCache eager | preallocated, in-place indexed write | one kernel launch per op |
-| StaticCache compiled | preallocated | `torch.compile(mode="default")` — Inductor fuses ops, no CUDA graphs |
-| StaticCache + graph | preallocated | `torch.compile(mode="reduce-overhead")` — the same fused kernels, captured and replayed as one CUDA graph |
+| Variant | Cache | Execution | Decode attention kernel |
+| --- | --- | --- | --- |
+| DynamicCache eager | grows by `torch.cat` each step | one launch per op | FlashAttention (`flash_fwd_splitkv`) |
+| StaticCache eager | preallocated, in-place indexed write | one launch per op | memory-efficient (`fmha_cutlassF`) |
+| StaticCache compiled | preallocated | `torch.compile(mode="default")` — Inductor fusion, no graphs | memory-efficient + Inductor mask kernel |
+| StaticCache + graph | preallocated | `torch.compile(mode="reduce-overhead")` — same kernels, one CUDA graph replay | memory-efficient + Inductor mask kernel |
 
-Prefill runs uncompiled in all variants; only decode steps go through the compiled callables. Kernel counts are for **one decode step, prefill excluded**. Inductor precision controlled by `torch._inductor.config.emulate_precision_casts` (on unless `--no-emulate`); the flag is read at compile time, so the two settings are separate runs.
+Prefill runs uncompiled in all variants. Kernel counts are for **one decode step, prefill excluded**. Inductor precision controlled by `torch._inductor.config.emulate_precision_casts`; the flag is read at compile time, so each setting is a separate run.
 
 ---
 
-**Result — performance** (`emulate_precision_casts=True`)
+**Result — performance** (real prompt, `emulate_precision_casts=True`)
 
 | Variant | ITL p50 | tok/s | Launches | Graph launches | GPU busy | GPU / ITL |
 | --- | --- | --- | --- | --- | --- | --- |
-| DynamicCache eager | 8.494 ms | 117.7 | 654 | 0 | 3794 µs | 45% |
-| StaticCache eager | 9.505 ms | 105.2 | 692 | 0 | 3763 µs | 40% |
-| StaticCache compiled | 3.234 ms | 309.3 | 73 | 0 | 2756 µs | 85% |
-| **StaticCache + graph** | **2.972 ms** | **336.5** | **1** | **1** | **2664 µs** | **90%** |
+| DynamicCache eager | 8.509 ms | 117.5 | 654 | 0 | 3794 µs | 45% |
+| StaticCache eager | 9.543 ms | 104.8 | 692 | 0 | 3761 µs | 39% |
+| StaticCache compiled | 3.217 ms | 310.9 | 73 | 0 | 2747 µs | 85% |
+| **StaticCache + graph** | **2.968 ms** | **336.9** | **1** | **1** | **2658 µs** | **90%** |
 
-The same four rows with `--no-emulate`: 8.616 / 9.590 / 3.308 / 2.995 ms. The flag has no measurable speed cost.
-
-Graph ITL across all runs on 2026-09-22: 2.966–3.003 ms.
+Graph-path ITL across all four runs (both prompts, flag on and off): 2.968–3.021 ms. Launch counts identical in every run. **Performance does not depend on prompt content**, only on its length.
 
 **Where the speedup comes from**
 
 | Step | ITL change | Speedup | Share of total |
 | --- | --- | --- | --- |
-| eager → fused (Inductor, 654 → 73 launches) | 8.494 → 3.234 ms | 2.63× | **95%** |
-| fused → graph replay (73 → 1 launch) | 3.234 → 2.972 ms | 1.09× | 5% |
-| **total** | **8.494 → 2.972 ms** | **2.86×** | |
+| eager → fused (Inductor, 654 → 73 launches) | 8.509 → 3.217 ms | 2.65× | **95%** |
+| fused → graph replay (73 → 1 launch) | 3.217 → 2.968 ms | 1.08× | 5% |
+| **total** | **8.509 → 2.968 ms** | **2.87×** | |
+
+**Effect of `emulate_precision_casts` on speed** (real prompt)
+
+| | flag off | flag on |
+| --- | --- | --- |
+| compiled ITL / GPU busy | 3.309 ms / 2797 µs | 3.217 ms / 2747 µs |
+| graph ITL / GPU busy | 3.021 ms / 2714 µs | 2.968 ms / 2658 µs |
+
+The flag is marginally *faster*: about 50 µs less GPU time per step, consistent across all four comparisons. It also changes fusion decisions (the rotary-embedding kernels split differently), not just rounding.
 
 | Metric | Value | Unit |
 | --- | --- | --- |
 | achieved bandwidth, graph (0.758 GB/step incl. KV at 512) | ~255 | GB/s |
 | **% of peak**, graph (vs 610 measured) | **~42** | % |
-| % of peak, fused without graph | ~38 | % |
 | % of peak, dynamic eager (baseline) | ~15 | % |
-| host cost per launch, fused variant: (3234 − 2756) µs / 73 | ~6.5 | µs |
+| host cost per launch, fused variant: (3217 − 2747) µs / 73 | ~6.4 | µs |
 
 **Baseline compared against:** 2026-09-17 — batch-1 HF decode, DynamicCache eager, 8.53 ms/tok
-**Delta:** −5.5 ms/tok (−65%), 2.86× throughput
+**Delta:** −5.5 ms/tok (−65%), 2.87× throughput
 
 ---
 
-**Result — accuracy**
+**Result — accuracy, real prompt**
 
-Every variant teacher-forced on the same token sequence (so one flipped argmax cannot cascade), logits compared against an fp32 copy of the model. KL divergence weights each token by its probability; top-10 |Δ| is the largest logit difference among the reference's ten highest-ranked tokens.
+Every variant teacher-forced on the same 64-token sequence (so one flipped argmax cannot cascade); logits compared against an fp32 copy of the model. KL divergence weights each token by its probability.
 
-| Variant vs fp32 | KL mean | KL max | top-10 \|Δ\| | argmax flips |
+| Variant vs fp32 | KL mean | KL max | argmax flips |
+| --- | --- | --- | --- |
+| DynamicCache eager | 4.87e-3 | 0.058 @ 31 | **none** |
+| StaticCache eager | 3.47e-3 | 0.033 @ 31 | **none** |
+| compiled / graph, flag off | 4.68e-3 | 0.088 @ 31 | **none** |
+| **compiled / graph, flag on** | **3.99e-3** | **0.033** @ 31 | **none** |
+
+- **No argmax flips in any variant** across 64 steps: every path picks the same token as fp32 at every step.
+- Mean KL spans a 1.4× band across all paths.
+- All paths share their worst step (31). A peak common to every implementation comes from the input, not from any one path.
+- Graph path run twice: max |Δlogit| 0.0000 in every run — replay is deterministic.
+- Compiled-with-graph and compiled-without-graph agree to every digit in every run — graph replay is numerically free.
+
+**Result — accuracy, repeated-token stress test (" the" × 512)**
+
+| Variant vs fp32 | KL mean, flag off | KL mean, flag on | KL max, flag off | KL max, flag on |
 | --- | --- | --- | --- | --- |
-| DynamicCache eager | 3.98e-3 | 0.107 @ 54 | 0.92 | 17, 20, 49 |
-| **StaticCache eager** | **2.02e-3** | **0.008** @ 0 | **0.49** | 17, 49 |
-| compiled / graph, emulate **on** | 3.49e-3 | 0.105 @ 54 | 0.85 | 17, 19, 20, 49 |
-| compiled / graph, emulate **off** | 1.28e-2 | 0.453 @ 1 | 3.60 | 17, 29, 49 |
+| DynamicCache eager | 3.98e-3 | 3.98e-3 | 0.107 @ 54 | 0.107 @ 54 |
+| StaticCache eager | 2.02e-3 | 2.02e-3 | 0.008 @ 0 | 0.008 @ 0 |
+| compiled / graph | 1.28e-2 | 3.49e-3 | 0.453 @ 1 | 0.105 @ 54 |
 
-Graph path run twice: max |Δlogit| 0.0000 in both configurations — replay is deterministic.
-
-Compiled-with-graph and compiled-without-graph agree to every printed digit in both configurations.
+Every argmax flip on this prompt, in every variant, sits at a top-2 gap of **under 2 bf16 ULPs** (1.0 ULP against bf16 dynamic; 0.08–1.69 ULP against fp32). Step 17 is an exact tie at bf16 precision: fp32 separates the candidates by 0.08 ULP, which bf16 cannot represent.
 
 ---
 
 **Interpretation**
 
-**The overhead-bound diagnosis is confirmed, and quantitatively.** Removing launches recovers almost exactly the time the 2026-09-17 profile attributed to host dispatch. Two independent per-launch measurements agree: ~5 µs from `cudaLaunchKernel` in the original profile, ~6.5 µs from the fused variant's wall-minus-GPU gap here.
+**The overhead-bound diagnosis is confirmed, and quantitatively.** Removing launches recovers almost exactly the time the 2026-09-17 profile attributed to host dispatch. Two independent per-launch measurements agree: ~5 µs from `cudaLaunchKernel` in the original profile, ~6.4 µs from the fused variant's wall-minus-GPU gap here.
 
-**Fusion does the heavy lifting, not CUDA graphs.** Inductor reduces 654 launches to 73 and delivers 95% of the improvement on its own. It also cuts GPU time by 27% (3794 → 2756 µs) by removing HBM round trips between elementwise ops. Graph replay removes the last 73 → 1 launches for a further 9%.
+**Fusion does the heavy lifting, not CUDA graphs.** Inductor reduces 654 launches to 73 and delivers 95% of the improvement on its own. It also cuts GPU time by 27% (3794 → 2747 µs) by removing HBM round trips between elementwise ops. Graph replay removes the last 73 → 1 launches for a further 8%.
 
-**StaticCache alone is slower, and that is evidence too.** Static eager is 12% slower than dynamic eager despite slightly less GPU time, because its indexed-write and mask-construction path adds launches (654 → 692). ITL followed launch count, not GPU time. StaticCache is not an optimization on its own — it is the prerequisite for compilation, which requires fixed shapes.
+**StaticCache alone is slower, for two reasons.** Static eager is 12% slower than dynamic eager despite slightly less GPU time. (1) It adds launches: 654 → 692, net of 48 indexed writes replacing 48 concatenations plus 72 integer index-arithmetic kernels (`arange`, `add<long>`) that DynamicCache never needs. (2) It uses a different attention kernel: FlashAttention cannot accept an explicit attention mask, and StaticCache always passes one over its preallocated slots, so it falls back to memory-efficient attention. StaticCache is not an optimization on its own; it is the prerequisite for compilation, which requires fixed shapes. Compilation eliminates the integer bookkeeping entirely.
 
-**CUDA graph replay is numerically free.** Graphed and ungraphed compiled paths produce identical logits. Replaying a kernel does not change its arithmetic.
+**Compilation costs no accuracy on realistic input.** With `emulate_precision_casts` on, the compiled and graph paths match eager bf16 against fp32 (KL mean 3.99e-3 vs 3.47e-3–4.87e-3), with no argmax flips. Without the flag they are still within the eager band on mean KL, but with a worse single step (0.088).
 
-**Inductor's default rounding costs accuracy; the flag recovers it at no speed cost.** Without `emulate_precision_casts`, the compiled paths stray 3.7× further from fp32 than with it (KL mean 1.28e-2 vs 3.49e-3), with a deterministic spike at step 1 (0.45). With it, they match the dynamic eager baseline's accuracy almost exactly.
+**Keep `emulate_precision_casts = True`.** It is free — marginally faster — and improves the compiled path's worst-case step on both prompts.
 
-**The argmax flips are ties, not errors.** Flips at steps 17 and 49 appear in every bf16 variant against fp32 — places where bf16 itself breaks a near-tie differently. The step-20 flip between variants is `' of'` (273) vs `'.'` (15), whose logits sit exactly **0.0625 apart — one bf16 ULP** at magnitudes in [8, 16). Any change in reduction order can move one by one step. KL at flip steps stays around 1e-3, confirming the distributions barely differ there.
+**The repeated-token prompt makes attention ill-conditioned.** On " the" × 512, three *correct* attention kernels give layer-5 errors from 1e-2 to 5.6e-2 and final KL from 0.004 to 0.107 — a 25× spread. Forcing DynamicCache eager onto the memory-efficient kernel reproduces StaticCache eager's numbers exactly, so the dynamic/static accuracy gap on that prompt was entirely kernel selection. Likely mechanism (unverified): with 512 near-identical keys and values, the attention output depends on tiny differences summed across 512 positions, so reduction order dominates. On real text the spread collapses and no layer shows a compiled-specific error.
 
-**Why is it not faster? Name the bottleneck:** at 90% GPU busy and ~42% of measured bandwidth, the step is now dominated by device work. The remaining gap to the bandwidth ceiling is small-kernel inefficiency at batch 1 — matrix-vector kernels too short to reach steady-state memory streaming. Batching is the lever for that, not further launch reduction.
+**Why is it not faster? Name the bottleneck:** at 90% GPU busy and ~42% of measured bandwidth, the step is dominated by device work, not host dispatch. The remaining gap to the bandwidth ceiling is small-kernel inefficiency at batch 1 — matrix-vector kernels too short to reach steady-state memory streaming. Batching is the lever for that, not further launch reduction.
 
 ---
 
 **Surprises / what I got wrong**
 
-- **Attributed the speedup to CUDA graphs.** Graph replay contributes 5% of it; Inductor fusion contributes 95%. Should have separated the two before stating the headline.
-- **Predicted StaticCache eager would be faster** (~466 µs less concatenation, ~120 fewer launches). It added launches and was 12% slower.
-- **Called the accuracy differences "bf16 noise" before measuring against fp32.** Comparing bf16 against bf16 could not tell which path was wrong. Against fp32, StaticCache eager turned out *most* accurate, and the compiled path without the flag measurably *least* accurate.
-- **Set the wrong correctness threshold.** Said max |Δlogit| of "several units" would indicate a bug. Max over all 50,304 vocab entries is dominated by deep-negative tail tokens that never affect output. KL and top-10 |Δ| are the right metrics.
-- **Suspected stale buffers at the first graph call** (step-1 spike). Ruled out: replay is deterministic, and the ungraphed compiled path shows the identical spike.
-- **Estimated the fused-without-graph ITL at 3.3–3.6 ms.** Measured 3.23 ms — fusion alone recovered even more than expected.
+- **Attributed the speedup to CUDA graphs.** Graph replay contributes 5%; Inductor fusion 95%.
+- **Predicted StaticCache eager would be faster.** It added 72 integer-arithmetic launches and lost access to FlashAttention.
+- **Measured accuracy on a degenerate prompt and drew conclusions from it.** The earlier drafts reported that default Inductor rounding "costs accuracy" (KL mean 1.28e-2, spike 0.45 at step 1). That is true on " the" × 512 and not true on prose. Should have validated on realistic input before investigating further.
+- **Called the accuracy differences "bf16 noise" before measuring against fp32.** Comparing bf16 against bf16 cannot tell which path is wrong.
+- **Set the wrong correctness threshold.** Max |Δlogit| over the full 50,304-token vocabulary is dominated by tail tokens that never affect output. KL, top-10 |Δlogit|, and flip gaps in ULPs are the right measures.
+- **Hypothesized large activations at layer 5.** Ruled out: max |h| at layer 5's output is 8.6–14.4; large values appear later and do not trigger the error.
+- **Hypothesized stale buffers at the first graph call.** Ruled out: replay is deterministic, and the ungraphed compiled path is numerically identical.
+
+**Investigation trail** (for reference; details in `investigate_*.json`)
+
+1. Per-layer hidden states vs fp32 located the divergence at the output of layer 5 on the repeated-token prompt; labels verified with a forward hook.
+2. Isolating layer 5's non-attention pieces (both LayerNorms, GELU, MLP, residual add, residual + LayerNorm) on identical bf16 inputs: all clean. By elimination, the attention branch.
+3. Diffing Inductor's generated code: 0 bf16 casts without the flag, 62 with it, concentrated in rotary-embedding, residual + LayerNorm, and attention-mask kernels.
+4. Attention backend sweep: forcing DynamicCache eager onto memory-efficient attention reproduced StaticCache eager exactly. Kernel selection, not fusion.
+5. Real-text rerun: every effect collapsed.
 
 **Confusions to revisit**
 
-- **Why does default fusion lose accuracy?** Fused kernels would normally keep intermediates at *higher* precision than eager, which should move results *closer* to fp32. Instead the flag — which forces eager-style per-op bf16 rounding — made the compiled path more accurate. Hypothesis: inconsistent rounding, e.g. one operand of a residual add or LayerNorm mean subtraction kept in fp32 while the other was rounded, amplifying error. Pythia's parallel residual (`x + attn(norm(x)) + mlp(norm(x))`) is the first place to look. **Unverified — under investigation.**
-- **Why step 1 specifically?** The same compiled kernels run every decode step, but the large deviation concentrates at step 1, with smaller spikes at step 3 and ~54. Possibly position-dependent sensitivity in the attention softmax; unexplained.
-- **Step-54 spike is shared by dynamic eager and the compiled paths but not static eager.** The one place where two paths agree with each other and disagree with the third.
+- **StaticCache prefill kernel selection.** On real text at step 54, StaticCache eager at default settings (KL 0.021) does not match StaticCache forced onto memory-efficient attention (KL 0.009); on the repeated-token prompt they match exactly. The profile covered only the decode step. Probable cause: prefill picks a different kernel (possibly cuDNN attention) depending on input. Profile prefill to confirm.
 - **Launch count 654 here vs 565 in 2026-09-17.** Same model, same step. Probable cause: this harness passes `attention_mask` to the dynamic path and the earlier profiling call did not. Not verified.
+- **Step 31 is the worst step for every path on real text.** Input-driven; not investigated.
 
 **Next actions**
 
-1. Localize the fusion accuracy loss: compare per-layer hidden states against fp32 at step 1 (`output_hidden_states=True` on every step, so one graph is used throughout) to find the layer where compiled error jumps.
-2. Diff Inductor's generated code with and without the flag (`TORCH_LOGS="output_code"`). Every inserted `.to(tl.bfloat16)` round-trip marks a place default Inductor skipped eager's rounding — the list of suspects.
-3. Isolate the suspect op in a single submodule and reproduce the gap in isolation.
-4. Batch sweep on the graph path — the remaining ~58% of bandwidth headroom should only be reachable by giving each kernel more work.
+1. Batch sweep on the graph path (batch 1, 2, 4, 8, 16, 32): ITL, tokens/s, achieved bandwidth. The remaining ~58% of bandwidth headroom should only be reachable by giving each kernel more work.
+2. Profile StaticCache prefill kernels to close the loose end above.
 
 **Harness limitations**
 
-- Prompt is repeated-token filler, which is what produced the 1-ULP tie between `' of'` and `'.'`. Real text would likely produce fewer ties and possibly different KL figures; rerun the accuracy comparison on a normal paragraph before quoting these as characteristic of the model.
 - Eager comparison is not perfectly symmetric: the dynamic path calls `model(...)` (through `nn.Module.__call__`), the static path calls `model.forward(...)` directly. A few µs per step; does not affect the compiled results.
 - `max_cache_len = prompt + gen + 8`. True minimum is prompt + gen − 1 (575). The slack guards against an off-by-one write past the preallocated tensor.
 - fp32 is a reference, not ground truth — ~16 more mantissa bits than bf16, enough to rank bf16 paths but not to certify any of them.
+- One real-text prompt, one model, 64 steps. Enough to show the repeated-token results were not characteristic; not enough to characterize accuracy in general.
 
-**Repro:** `uv run python bench_cuda_graphs.py` and `uv run python bench_cuda_graphs.py --no-emulate` · greedy, deterministic · torch 2.13.0+cu130 · results in `cuda_graphs_emulate.json`, `cuda_graphs_noemulate.json`
+**Repro:**
+
+```bash
+uv run python bench_cuda_graphs.py --real-prompt
+uv run python bench_cuda_graphs.py --real-prompt --no-emulate
+uv run python bench_cuda_graphs.py
+uv run python bench_cuda_graphs.py --no-emulate
+uv run python investigate_fusion.py [--real-prompt] [--emulate]
+```
+
+Greedy, deterministic · torch 2.13.0+cu130
+
 
 
 <!-- New entries go ABOVE this line, newest last. Keep it chronological. -->
