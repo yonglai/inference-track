@@ -166,8 +166,8 @@ ones are usually the ones that invalidate the result three months later.
 
 **Machine:** g1 (Linux, EXT4, 27 GiB RAM)
 **GPU:** NVIDIA Ampere, sm_86 (compute 8.6), 9.64 GiB
-**Driver:** <nvidia-smi>
-**PyTorch:** <torch.**version**>, built against CUDA 13.0
+**Driver:** 595.84
+**PyTorch:** 2.13.0+cu130, built against CUDA 13.0
 **System toolkit:** CUDA 13.3.1, CUDA_HOME=/usr/local/cuda-13.3
 
 - was 12.0 — three years behind PyTorch, caused the failure below
@@ -559,7 +559,7 @@ roofline's bandwidth ceiling is never approached.
 - Batch size hardcoded to 1. Batching moves decode from matrix-vector to matrix-matrix and
   shifts it right on the roofline — the whole point of Phase 2.
 
-**Repro:** `python bench_ttft_itl.py` · script `bench_ttft_itl.py` · greedy, no seed needed
+**Repro:** `uv run python bench/bench_ttft_itl.py` · script `bench/bench_ttft_itl.py` · greedy, no seed needed
 (deterministic) · kernel `Python (mlops-jupyter)`
 
 ### 2026-09-24 — Week 6 — Removing launch overhead: fusion, CUDA graphs, and what they cost in accuracy
@@ -579,8 +579,8 @@ roofline's bandwidth ceiling is never approached.
 - Prompts: `real` — ~500 words of original prose; `the` — 512 repetitions of " the"
 - Warmup iters / measured iters: 3 / 5, all variants
 - Explicit synchronize? **Y**
-- Scripts: `bench_cuda_graphs.py`, `investigate_fusion.py`
-- Results: `cuda_graphs_{real,the}_{emulate,noemulate}.json`, `investigate_{real,the}_{emulate,noemulate}.json`
+- Scripts: `bench/bench_cuda_graphs.py`, `bench/investigate_fusion.py`
+- Results: `results/cuda_graphs_{real,the}_{emulate,noemulate}.json`, `results/investigate_{real,the}_{emulate,noemulate}.json`
 
 Four variants, each adding one change to the one before:
 
@@ -692,7 +692,7 @@ Every argmax flip on this prompt, in every variant, sits at a top-2 gap of **und
 - **Hypothesized large activations at layer 5.** Ruled out: max |h| at layer 5's output is 8.6–14.4; large values appear later and do not trigger the error.
 - **Hypothesized stale buffers at the first graph call.** Ruled out: replay is deterministic, and the ungraphed compiled path is numerically identical.
 
-**Investigation trail** (for reference; details in `investigate_*.json`)
+**Investigation trail** (for reference; details in `results/investigate_*.json`)
 
 1. Per-layer hidden states vs fp32 located the divergence at the output of layer 5 on the repeated-token prompt; labels verified with a forward hook.
 2. Isolating layer 5's non-attention pieces (both LayerNorms, GELU, MLP, residual add, residual + LayerNorm) on identical bf16 inputs: all clean. By elimination, the attention branch.
@@ -721,11 +721,11 @@ Every argmax flip on this prompt, in every variant, sits at a top-2 gap of **und
 **Repro:**
 
 ```bash
-uv run python bench_cuda_graphs.py --real-prompt
-uv run python bench_cuda_graphs.py --real-prompt --no-emulate
-uv run python bench_cuda_graphs.py
-uv run python bench_cuda_graphs.py --no-emulate
-uv run python investigate_fusion.py [--real-prompt] [--emulate]
+uv run python bench/bench_cuda_graphs.py --real-prompt
+uv run python bench/bench_cuda_graphs.py --real-prompt --no-emulate
+uv run python bench/bench_cuda_graphs.py
+uv run python bench/bench_cuda_graphs.py --no-emulate
+uv run python bench/investigate_fusion.py [--real-prompt] [--emulate]
 ```
 
 Greedy, deterministic · torch 2.13.0+cu130

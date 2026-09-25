@@ -160,7 +160,7 @@ def run(model_id: str, prompt_tokens: int, gen_tokens: int,
 
 if __name__ == "__main__":
     # out = run("EleutherAI/pythia-410m", prompt_tokens=512, gen_tokens=64)
-    # with open("bench_ttft_itl.json", "w") as f:
+    # with open("../results/bench_ttft_itl.json", "w") as f:
     #     json.dump(out, f, indent=2)
 
     # for r in out["runs"]:
@@ -177,7 +177,7 @@ if __name__ == "__main__":
     # Sweep over a few prompt lengths, print the median ITL and decode throughput.
     for prompt_tokens in [128, 512, 1024, 2048]:
         out = run("EleutherAI/pythia-410m", prompt_tokens=prompt_tokens, gen_tokens=64)
-        with open(f"bench_ttft_itl-{prompt_tokens}.json", "w") as f:
+        with open(f"../results/bench_ttft_itl-{prompt_tokens}.json", "w") as f:
             json.dump(out, f, indent=2)
 
         for r in out["runs"]:
