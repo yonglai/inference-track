@@ -216,6 +216,82 @@ compiled anything. Will recur with Triton in Phase 3.
 
 ---
 
+## Issue 002 — Display stuck at 1024×768, nvidia-smi fails after kernel update (2026-09-27) — RESOLVED
+
+**Symptom:** After a routine boot, GNOME came up at 1024×768 with no other
+resolution offered. `nvidia-smi`: "couldn't communicate with the NVIDIA driver".
+No `nvidia` (or `nouveau`) module loaded.
+
+**Trigger (confirmed via /var/log/apt/history.log):** `unattended-upgrade` on
+2026-09-25 06:44 installed kernel 7.0.0-34 and bumped `linux-generic-hwe-24.04`
+31 → 34. It only installs from the security archive; the matching NVIDIA 595.91
+packages weren't eligible, so the kernel moved and the driver didn't. Broke on
+the next reboot (2026-09-27).
+
+**Prevention:** `"linux-";` added to `Unattended-Upgrade::Package-Blacklist` in
+`/etc/apt/apt.conf.d/50unattended-upgrades` — kernels now only update via a manual
+`apt full-upgrade`, checking the matching `linux-modules-nvidia-*` package is in the
+same transaction. Warning hook at `/etc/kernel/postinst.d/zz-nvidia-check`.
+
+**Diagnosis:**
+
+- Running kernel `7.0.0-34-generic`; `7.0.0-31-generic` still installed.
+- Driver is Ubuntu's **prebuilt open kernel module** (`linux-modules-nvidia-595-open-<kernel>`),
+  not DKMS — `dkms` isn't even installed, and doesn't need to be.
+- `nvidia.ko` present under `/lib/modules/7.0.0-31-generic/kernel/nvidia-595-open/`,
+  **absent** for -34.
+- Metapackage `linux-modules-nvidia-595-open-generic-hwe-24.04` still at 7.0.0-31.
+- Secure Boot disabled — not a signing problem.
+- Holds (`nvidia-cuda-toolkit`, `nvidia-cuda-dev` = the 12.0 toolkit) are user-space
+  only and unrelated.
+
+**Cause:** The kernel meta moved to -34, but the -34 NVIDIA module package
+depends on driver **595.91**, while user space was on **595.84**. Pulling it in
+required upgrading the whole driver stack, so the NVIDIA metapackage was held
+back and -34 booted with no GPU module. The GPU fell back to a basic framebuffer,
+which can't read the monitor's EDID → a single safe 1024×768 mode.
+
+**Fix:**
+
+```bash
+sudo apt install linux-modules-nvidia-595-open-7.0.0-34-generic \
+                 linux-modules-nvidia-595-open-generic-hwe-24.04
+```
+
+Upgraded driver 595.84 → **595.91.07** (16 packages), also rebuilt the -31
+module. Nothing removed; CUDA holds untouched. Then reboot + `sudo apt autoremove`
+(removed only `nvidia-firmware-595-595.84`, `libfwupd2`).
+
+**Verified:** `uname -r` = 7.0.0-34-generic · `nvidia-smi` driver 595.91.07 ·
+`/proc/driver/nvidia/version` = Open Kernel Module 595.91.07 · native resolution back.
+
+**Side notes:**
+
+- Driver reports **CUDA 13.2** max; system toolkit is **13.3**. Runs via minor-version
+  compatibility, except driver-JIT of 13.3-generated PTX. If
+  `PTX was compiled with an unsupported toolchain` appears, this is why — build
+  cubins for `sm_86` instead.
+- Desktop baseline VRAM: **~300 MiB** (Xorg 145 + gnome-shell 117). Caps vLLM
+  `--gpu-memory-utilization` at ~0.9 on G1.
+- 63 packages still "not upgraded" — deliberately left alone; handle separately.
+
+**Lesson:** Same lesson as Issue 001, from the other side. That one was the
+toolkit; this one is the driver, which has _two_ halves (kernel module + user-space
+libs) that must match each other _and_ the running kernel. With prebuilt modules,
+a kernel update is only safe if the matching `linux-modules-nvidia-*` package
+arrives with it.
+
+**Check after any kernel update:**
+
+```bash
+find /lib/modules/$(uname -r) -name 'nvidia.ko*'   # must find the module
+nvidia-smi                                          # must run
+```
+
+Fallback if not: GRUB → Advanced options → previous kernel.
+
+---
+
 ## Measurements
 
 ### 2026-08-16 — vLLM baseline, Qwen3-1.7B
@@ -409,29 +485,29 @@ matter for timing).
 
 **Result**
 
-| Metric                        | Value  | Unit    |
-| ----------------------------- | ------ | ------- |
-| TTFT p50                      | 13.37  | ms      |
-| — of which tokenize           | 0.78   | ms      |
-| — of which prefill            | 12.52  | ms      |
-| — of which sample + detokenize| 0.06   | ms      |
-| inter-token latency p50       | 8.53   | ms/tok  |
-| inter-token latency p95        | 8.58   | ms/tok  |
-| throughput (decode only)      | 117    | tok/s   |
-| achieved bandwidth (weights)  | 83     | GB/s    |
-| achieved bandwidth (+KV)      | 89     | GB/s    |
-| **% of peak** (vs 610 measured) | **14** | %     |
-| % of peak (vs 760 theoretical)| 11     | %       |
+| Metric                          | Value  | Unit   |
+| ------------------------------- | ------ | ------ |
+| TTFT p50                        | 13.37  | ms     |
+| — of which tokenize             | 0.78   | ms     |
+| — of which prefill              | 12.52  | ms     |
+| — of which sample + detokenize  | 0.06   | ms     |
+| inter-token latency p50         | 8.53   | ms/tok |
+| inter-token latency p95         | 8.58   | ms/tok |
+| throughput (decode only)        | 117    | tok/s  |
+| achieved bandwidth (weights)    | 83     | GB/s   |
+| achieved bandwidth (+KV)        | 89     | GB/s   |
+| **% of peak** (vs 610 measured) | **14** | %      |
+| % of peak (vs 760 theoretical)  | 11     | %      |
 
 Model bytes, measured not assumed:
 
-| Quantity                          | Bytes    |
-| --------------------------------- | -------- |
-| all parameters                    | 0.811 GB |
-| `embed_in` (row lookup, not read) | 0.103 GB |
+| Quantity                          | Bytes        |
+| --------------------------------- | ------------ |
+| all parameters                    | 0.811 GB     |
+| `embed_in` (row lookup, not read) | 0.103 GB     |
 | **decode-relevant weights**       | **0.708 GB** |
-| KV cache at position 512          | 0.050 GB |
-| KV cache at position 575          | 0.057 GB |
+| KV cache at position 512          | 0.050 GB     |
+| KV cache at position 575          | 0.057 GB     |
 
 `embed_in` is excluded because decode indexes a single 1024-element row (~2 KB), not the
 51.5M-parameter table. `embed_out` is **not** excluded — pythia does not tie embeddings,
@@ -459,11 +535,11 @@ evidence:
 
 1. **ITL tracks layer count, not bytes.** Size sweep at 512→64:
 
-   | model  | layers | hidden | ITL     | tok/s | ms per layer |
-   | ------ | ------ | ------ | ------- | ----- | ------------ |
-   | 160m   | 12     | 768    | 4.69 ms | 213.0 | 0.39         |
-   | 410m   | 24     | 1024   | 8.71 ms | 114.7 | 0.36         |
-   | 1.4b   | 24     | 2048   | 8.66 ms | 114.5 | 0.36         |
+   | model | layers | hidden | ITL     | tok/s | ms per layer |
+   | ----- | ------ | ------ | ------- | ----- | ------------ |
+   | 160m  | 12     | 768    | 4.69 ms | 213.0 | 0.39         |
+   | 410m  | 24     | 1024   | 8.71 ms | 114.7 | 0.36         |
+   | 1.4b  | 24     | 2048   | 8.66 ms | 114.5 | 0.36         |
 
    410m and 1.4b share 24 layers and land within 0.6% of each other despite 1.4b moving
    ~3.6× the bytes. If decode were bandwidth-bound, 1.4b would be ~3.6× slower. Per-layer
@@ -481,14 +557,14 @@ evidence:
 
 GPU time breakdown for one decode step (Self CUDA 2.995 ms total):
 
-| Kernel                    | Calls | Time   | Share | What it is                |
-| ------------------------- | ----- | ------ | ----- | ------------------------- |
-| cutlass wmma bf16         | 48    | 737 µs | 24.6% | MLP matmuls (2/layer)     |
-| gemvx                     | 48    | 533 µs | 17.8% | QKV + output projections  |
-| **CatArrayBatch**         | 120   | 466 µs | 15.6% | **KV cache concatenation**|
-| flash_fwd_splitkv         | 24    | 261 µs |  8.7% | attention                 |
-| elementwise (assorted)    | ~250  | ~460 µs| ~15%  | norms, residuals, rotary  |
-| gemv2T                    | 1     | 147 µs |  4.9% | lm_head                   |
+| Kernel                 | Calls | Time    | Share | What it is                 |
+| ---------------------- | ----- | ------- | ----- | -------------------------- |
+| cutlass wmma bf16      | 48    | 737 µs  | 24.6% | MLP matmuls (2/layer)      |
+| gemvx                  | 48    | 533 µs  | 17.8% | QKV + output projections   |
+| **CatArrayBatch**      | 120   | 466 µs  | 15.6% | **KV cache concatenation** |
+| flash_fwd_splitkv      | 24    | 261 µs  | 8.7%  | attention                  |
+| elementwise (assorted) | ~250  | ~460 µs | ~15%  | norms, residuals, rotary   |
+| gemv2T                 | 1     | 147 µs  | 4.9%  | lm_head                    |
 
 Real matmul work totals ~1.68 ms — **56% of GPU time**. The rest is bookkeeping.
 
@@ -503,7 +579,7 @@ roofline's bandwidth ceiling is never approached.
 
 - **The plan's premise needs a qualifier.** LOG.md states decode "is _always_ memory-bound."
   True about arithmetic intensity (~2 FLOP/byte), false about what actually limits batch-1
-  HF decode. Bandwidth is the *ceiling*; launch overhead is the *floor I am sitting on*.
+  HF decode. Bandwidth is the _ceiling_; launch overhead is the _floor I am sitting on_.
   The roofline model assumes one resource is saturated — at batch 1, neither is.
 
 - **Smaller models are less hardware-efficient, not more.** Achieved bandwidth rises with
@@ -584,12 +660,12 @@ roofline's bandwidth ceiling is never approached.
 
 Four variants, each adding one change to the one before:
 
-| Variant | Cache | Execution | Decode attention kernel |
-| --- | --- | --- | --- |
-| DynamicCache eager | grows by `torch.cat` each step | one launch per op | FlashAttention (`flash_fwd_splitkv`) |
-| StaticCache eager | preallocated, in-place indexed write | one launch per op | memory-efficient (`fmha_cutlassF`) |
-| StaticCache compiled | preallocated | `torch.compile(mode="default")` — Inductor fusion, no graphs | memory-efficient + Inductor mask kernel |
-| StaticCache + graph | preallocated | `torch.compile(mode="reduce-overhead")` — same kernels, one CUDA graph replay | memory-efficient + Inductor mask kernel |
+| Variant              | Cache                                | Execution                                                                     | Decode attention kernel                 |
+| -------------------- | ------------------------------------ | ----------------------------------------------------------------------------- | --------------------------------------- |
+| DynamicCache eager   | grows by `torch.cat` each step       | one launch per op                                                             | FlashAttention (`flash_fwd_splitkv`)    |
+| StaticCache eager    | preallocated, in-place indexed write | one launch per op                                                             | memory-efficient (`fmha_cutlassF`)      |
+| StaticCache compiled | preallocated                         | `torch.compile(mode="default")` — Inductor fusion, no graphs                  | memory-efficient + Inductor mask kernel |
+| StaticCache + graph  | preallocated                         | `torch.compile(mode="reduce-overhead")` — same kernels, one CUDA graph replay | memory-efficient + Inductor mask kernel |
 
 Prefill runs uncompiled in all variants. Kernel counts are for **one decode step, prefill excluded**. Inductor precision controlled by `torch._inductor.config.emulate_precision_casts`; the flag is read at compile time, so each setting is a separate run.
 
@@ -597,38 +673,38 @@ Prefill runs uncompiled in all variants. Kernel counts are for **one decode step
 
 **Result — performance** (real prompt, `emulate_precision_casts=True`)
 
-| Variant | ITL p50 | tok/s | Launches | Graph launches | GPU busy | GPU / ITL |
-| --- | --- | --- | --- | --- | --- | --- |
-| DynamicCache eager | 8.509 ms | 117.5 | 654 | 0 | 3794 µs | 45% |
-| StaticCache eager | 9.543 ms | 104.8 | 692 | 0 | 3761 µs | 39% |
-| StaticCache compiled | 3.217 ms | 310.9 | 73 | 0 | 2747 µs | 85% |
-| **StaticCache + graph** | **2.968 ms** | **336.9** | **1** | **1** | **2658 µs** | **90%** |
+| Variant                 | ITL p50      | tok/s     | Launches | Graph launches | GPU busy    | GPU / ITL |
+| ----------------------- | ------------ | --------- | -------- | -------------- | ----------- | --------- |
+| DynamicCache eager      | 8.509 ms     | 117.5     | 654      | 0              | 3794 µs     | 45%       |
+| StaticCache eager       | 9.543 ms     | 104.8     | 692      | 0              | 3761 µs     | 39%       |
+| StaticCache compiled    | 3.217 ms     | 310.9     | 73       | 0              | 2747 µs     | 85%       |
+| **StaticCache + graph** | **2.968 ms** | **336.9** | **1**    | **1**          | **2658 µs** | **90%**   |
 
 Graph-path ITL across all four runs (both prompts, flag on and off): 2.968–3.021 ms. Launch counts identical in every run. **Performance does not depend on prompt content**, only on its length.
 
 **Where the speedup comes from**
 
-| Step | ITL change | Speedup | Share of total |
-| --- | --- | --- | --- |
-| eager → fused (Inductor, 654 → 73 launches) | 8.509 → 3.217 ms | 2.65× | **95%** |
-| fused → graph replay (73 → 1 launch) | 3.217 → 2.968 ms | 1.08× | 5% |
-| **total** | **8.509 → 2.968 ms** | **2.87×** | |
+| Step                                        | ITL change           | Speedup   | Share of total |
+| ------------------------------------------- | -------------------- | --------- | -------------- |
+| eager → fused (Inductor, 654 → 73 launches) | 8.509 → 3.217 ms     | 2.65×     | **95%**        |
+| fused → graph replay (73 → 1 launch)        | 3.217 → 2.968 ms     | 1.08×     | 5%             |
+| **total**                                   | **8.509 → 2.968 ms** | **2.87×** |                |
 
 **Effect of `emulate_precision_casts` on speed** (real prompt)
 
-| | flag off | flag on |
-| --- | --- | --- |
+|                         | flag off           | flag on            |
+| ----------------------- | ------------------ | ------------------ |
 | compiled ITL / GPU busy | 3.309 ms / 2797 µs | 3.217 ms / 2747 µs |
-| graph ITL / GPU busy | 3.021 ms / 2714 µs | 2.968 ms / 2658 µs |
+| graph ITL / GPU busy    | 3.021 ms / 2714 µs | 2.968 ms / 2658 µs |
 
-The flag is marginally *faster*: about 50 µs less GPU time per step, consistent across all four comparisons. It also changes fusion decisions (the rotary-embedding kernels split differently), not just rounding.
+The flag is marginally _faster_: about 50 µs less GPU time per step, consistent across all four comparisons. It also changes fusion decisions (the rotary-embedding kernels split differently), not just rounding.
 
-| Metric | Value | Unit |
-| --- | --- | --- |
-| achieved bandwidth, graph (0.758 GB/step incl. KV at 512) | ~255 | GB/s |
-| **% of peak**, graph (vs 610 measured) | **~42** | % |
-| % of peak, dynamic eager (baseline) | ~15 | % |
-| host cost per launch, fused variant: (3217 − 2747) µs / 73 | ~6.4 | µs |
+| Metric                                                     | Value   | Unit |
+| ---------------------------------------------------------- | ------- | ---- |
+| achieved bandwidth, graph (0.758 GB/step incl. KV at 512)  | ~255    | GB/s |
+| **% of peak**, graph (vs 610 measured)                     | **~42** | %    |
+| % of peak, dynamic eager (baseline)                        | ~15     | %    |
+| host cost per launch, fused variant: (3217 − 2747) µs / 73 | ~6.4    | µs   |
 
 **Baseline compared against:** 2026-09-17 — batch-1 HF decode, DynamicCache eager, 8.53 ms/tok
 **Delta:** −5.5 ms/tok (−65%), 2.87× throughput
@@ -639,12 +715,12 @@ The flag is marginally *faster*: about 50 µs less GPU time per step, consistent
 
 Every variant teacher-forced on the same 64-token sequence (so one flipped argmax cannot cascade); logits compared against an fp32 copy of the model. KL divergence weights each token by its probability.
 
-| Variant vs fp32 | KL mean | KL max | argmax flips |
-| --- | --- | --- | --- |
-| DynamicCache eager | 4.87e-3 | 0.058 @ 31 | **none** |
-| StaticCache eager | 3.47e-3 | 0.033 @ 31 | **none** |
-| compiled / graph, flag off | 4.68e-3 | 0.088 @ 31 | **none** |
-| **compiled / graph, flag on** | **3.99e-3** | **0.033** @ 31 | **none** |
+| Variant vs fp32               | KL mean     | KL max         | argmax flips |
+| ----------------------------- | ----------- | -------------- | ------------ |
+| DynamicCache eager            | 4.87e-3     | 0.058 @ 31     | **none**     |
+| StaticCache eager             | 3.47e-3     | 0.033 @ 31     | **none**     |
+| compiled / graph, flag off    | 4.68e-3     | 0.088 @ 31     | **none**     |
+| **compiled / graph, flag on** | **3.99e-3** | **0.033** @ 31 | **none**     |
 
 - **No argmax flips in any variant** across 64 steps: every path picks the same token as fp32 at every step.
 - Mean KL spans a 1.4× band across all paths.
@@ -654,11 +730,11 @@ Every variant teacher-forced on the same 64-token sequence (so one flipped argma
 
 **Result — accuracy, repeated-token stress test (" the" × 512)**
 
-| Variant vs fp32 | KL mean, flag off | KL mean, flag on | KL max, flag off | KL max, flag on |
-| --- | --- | --- | --- | --- |
-| DynamicCache eager | 3.98e-3 | 3.98e-3 | 0.107 @ 54 | 0.107 @ 54 |
-| StaticCache eager | 2.02e-3 | 2.02e-3 | 0.008 @ 0 | 0.008 @ 0 |
-| compiled / graph | 1.28e-2 | 3.49e-3 | 0.453 @ 1 | 0.105 @ 54 |
+| Variant vs fp32    | KL mean, flag off | KL mean, flag on | KL max, flag off | KL max, flag on |
+| ------------------ | ----------------- | ---------------- | ---------------- | --------------- |
+| DynamicCache eager | 3.98e-3           | 3.98e-3          | 0.107 @ 54       | 0.107 @ 54      |
+| StaticCache eager  | 2.02e-3           | 2.02e-3          | 0.008 @ 0        | 0.008 @ 0       |
+| compiled / graph   | 1.28e-2           | 3.49e-3          | 0.453 @ 1        | 0.105 @ 54      |
 
 Every argmax flip on this prompt, in every variant, sits at a top-2 gap of **under 2 bf16 ULPs** (1.0 ULP against bf16 dynamic; 0.08–1.69 ULP against fp32). Step 17 is an exact tie at bf16 precision: fp32 separates the candidates by 0.08 ULP, which bf16 cannot represent.
 
@@ -676,7 +752,7 @@ Every argmax flip on this prompt, in every variant, sits at a top-2 gap of **und
 
 **Keep `emulate_precision_casts = True`.** It is free — marginally faster — and improves the compiled path's worst-case step on both prompts.
 
-**The repeated-token prompt makes attention ill-conditioned.** On " the" × 512, three *correct* attention kernels give layer-5 errors from 1e-2 to 5.6e-2 and final KL from 0.004 to 0.107 — a 25× spread. Forcing DynamicCache eager onto the memory-efficient kernel reproduces StaticCache eager's numbers exactly, so the dynamic/static accuracy gap on that prompt was entirely kernel selection. Likely mechanism (unverified): with 512 near-identical keys and values, the attention output depends on tiny differences summed across 512 positions, so reduction order dominates. On real text the spread collapses and no layer shows a compiled-specific error.
+**The repeated-token prompt makes attention ill-conditioned.** On " the" × 512, three _correct_ attention kernels give layer-5 errors from 1e-2 to 5.6e-2 and final KL from 0.004 to 0.107 — a 25× spread. Forcing DynamicCache eager onto the memory-efficient kernel reproduces StaticCache eager's numbers exactly, so the dynamic/static accuracy gap on that prompt was entirely kernel selection. Likely mechanism (unverified): with 512 near-identical keys and values, the attention output depends on tiny differences summed across 512 positions, so reduction order dominates. On real text the spread collapses and no layer shows a compiled-specific error.
 
 **Why is it not faster? Name the bottleneck:** at 90% GPU busy and ~42% of measured bandwidth, the step is dominated by device work, not host dispatch. The remaining gap to the bandwidth ceiling is small-kernel inefficiency at batch 1 — matrix-vector kernels too short to reach steady-state memory streaming. Batching is the lever for that, not further launch reduction.
 
@@ -729,7 +805,5 @@ uv run python bench/investigate_fusion.py [--real-prompt] [--emulate]
 ```
 
 Greedy, deterministic · torch 2.13.0+cu130
-
-
 
 <!-- New entries go ABOVE this line, newest last. Keep it chronological. -->
