@@ -806,4 +806,106 @@ uv run python bench/investigate_fusion.py [--real-prompt] [--emulate]
 
 Greedy, deterministic · torch 2.13.0+cu130
 
+### 2026-09-27/28 — Sprint Week 4 (JS-202) — Day 1: k3s + NVIDIA device plugin on G1
+
+**Machine:** G1
+**Question:** Can a pod on single-node k3s request the RTX 3080 through the
+scheduler and see it from inside the container?
+
+**Setup**
+
+- k3s v1.36.4+k3s1, single node `g1` (24 CPU, 32 GB RAM allocatable)
+- NVIDIA driver 595.91.07 (CUDA 13.2 max) · nvidia-container-toolkit 1.20.1
+- Runtime `mode = "auto"` → resolves to **CDI**: spec at `/var/run/cdi/nvidia.yaml`
+  (regenerated each boot; `/var/run` is tmpfs). Confirmed: `NVIDIA_CTK_LIBCUDA_DIR`
+  seen in pods is defined in that spec (line 142).
+- RuntimeClass `nvidia` created automatically by k3s (it detected `nvidia-container-runtime` at startup)
+- Helm v4.3.0+gbec5b06
+- Device plugin: Helm chart `nvdp/nvidia-device-plugin` 0.20.1,
+  namespace `nvidia-device-plugin`, `--set runtimeClassName=nvidia`
+- Test image: `nvidia/cuda:12.4.1-base-ubuntu22.04`, command `nvidia-smi`
+- Manifests: `~/projects/vllm-k8s/manifests/day1/`
+
+**Predictions (written before running)**
+
+|                                            | probe-both | probe-noruntime | probe-nolimit |
+| ------------------------------------------ | ---------- | --------------- | ------------- |
+| Schedules? GPU counted as allocated?       | Y          | Y               | N             |
+| `NVIDIA_VISIBLE_DEVICES` = ? (set by whom) | all        | all             | all           |
+| `/dev/nvidia*` exists?                     | Y          | N               | Y             |
+| `nvidia-smi -L` works?                     | Y          | N               | N             |
+
+Reasoning: env vars are set by the image,
+`/dev/nvidia*` and `nvidia-smi` are set by runtime, GPU count is set by limits.
+
+**Result**
+
+| Check                        | Result                                                                        |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| Device plugin                | Running; `Detected platform: nvml`; registered `nvidia.com/gpu` with kubelet  |
+| Node Allocatable             | `nvidia.com/gpu: 1`                                                           |
+| Pod, 1 GPU                   | Completed; in-container `nvidia-smi` shows RTX 3080, driver 595.91.07         |
+| Pod, 2 GPUs                  | Pending — `0/1 nodes are available: 1 Insufficient nvidia.com/gpu`            |
+| probe-both (runtime + limit) | `NVIDIA_VISIBLE_DEVICES=void`, `/dev/nvidia*` ✓, `nvidia-smi -L` ✓            |
+| probe-noruntime (limit only) | `=GPU-556e760b-…`, no `/dev/nvidia*`, `nvidia-smi: not found`                 |
+| probe-nolimit (runtime only) | `=void`, `/dev/nvidia*` ✓, `nvidia-smi -L` ✓ — same GPU UUID                  |
+| Accounting vs access         | noruntime: allocated 1, access 0 · both + nolimit: allocated 1, access 2 pods |
+
+**Interpretation**
+
+- **The container uses the host driver.** The pod's image ships CUDA 12.4
+  user-space, but `nvidia-smi` inside reports 595.91.07 / CUDA 13.2: the nvidia
+  runtime injects the host's `libcuda`/`libnvidia-ml` and `/dev/nvidia*` into the
+  container per the CDI spec. Only the host driver version matters to a pod
+  (Issue 001/002).
+- **GPU scheduling has three pieces:** node labels + DaemonSet affinity decide
+  _where the plugin runs_; the plugin decides _how many GPUs the node advertises_
+  (via NVML → kubelet); the scheduler places pods against that count and never
+  overcommits it (hence Pending, not a partial allocation). But the count is
+  accounting, not enforcement — see probe-nolimit below.
+- In-container `nvidia-smi` shows 171 MiB used but "No running processes":
+  the pod's PID namespace hides the host's Xorg/gnome-shell, while memory is
+  reported per GPU.
+
+**Surprises / what I got wrong**
+
+- **Device plugin DaemonSet scheduled 0 pods, silently.** The chart's node affinity
+  requires a GPU label (`nvidia.com/gpu.present=true`), normally set by Node
+  Feature Discovery. Fix: `kubectl label node g1 nvidia.com/gpu.present=true`;
+  the DaemonSet controller created the pod within seconds, no reinstall.
+  created `pod/gpu-test`, not `gpu-test-2`. Pod identity is `metadata.name`, not
+  the filename.
+- `kubectl get nodes -n <ns>`: `-n` is ignored. Nodes are cluster-scoped, like
+  RuntimeClasses and PersistentVolumes.
+- `mps-control-daemon` DaemonSet at 0 pods is expected: it only targets nodes
+  labelled `nvidia.com/mps.capable=true` (GPU sharing via MPS, unused).
+- **Predicted NVIDIA_VISIBLE_DEVICES=all everywhere.** The device plugin overrides the
+  image's `all` with the allocated GPU's UUID (probe-noruntime: `GPU-556e760b-…`); runc
+  ignores it, so no devices and no nvidia-smi (it's injected by the runtime, not in the image).
+- **Didn't know about `void`.** With the nvidia runtime in CDI mode, the runtime injects the
+  devices and libraries itself, then rewrites the variable to `void` (CDI mode confirmed
+  via the spec; see Setup).
+- **Predicted probe-nolimit couldn't run nvidia-smi — it could, on the same GPU.** No limit,
+  so no plugin override; the image's `all` reached the runtime, which exposed every GPU.
+  The runtime never consults the scheduler: two pods shared the GPU while
+  Allocated showed 1. Mitigations: ignore the variable in unprivileged containers,
+  device-list strategy that pods can't set themselves, admission policy on runtimeClassName.
+
+**Next actions**
+
+1. Day 2: vLLM via production-stack Helm chart; `helm template` output saved as reference.
+
+**Repro:**
+
+```bash
+kubectl label node g1 nvidia.com/gpu.present=true
+helm upgrade -i nvdp nvdp/nvidia-device-plugin \
+  --namespace nvidia-device-plugin --create-namespace \
+  --set runtimeClassName=nvidia
+kubectl apply -f manifests/day1/gpu-test.yaml && kubectl logs gpu-test
+kubectl apply -f manifests/day1/probe-noruntime.yaml     # run alone
+kubectl apply -f manifests/day1/probe-both.yaml -f manifests/day1/probe-nolimit.yaml
+kubectl describe node g1 | grep -A 10 "Allocated resources"
+```
+
 <!-- New entries go ABOVE this line, newest last. Keep it chronological. -->
