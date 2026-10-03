@@ -1,0 +1,34 @@
+servingEngineSpec:
+  strategy:
+    type: Recreate
+  runtimeClassName: "nvidia"
+  modelSpec:
+  - name: "qwen15b"
+    repository: "vllm/vllm-openai"
+    tag: "v0.30.0"                      # same tag you pre-pulled
+    modelURL: "Qwen/Qwen2.5-1.5B-Instruct"
+    replicaCount: 1
+
+    requestCPU: 2                     # chart examples use 6 / 16Gi – too much for a desktop node
+    requestMemory: "8Gi"
+    requestGPU: 1
+
+    pvcStorage: "20Gi"                # caches HF weights across pod restarts (local-path)
+
+    vllmConfig:
+      maxModelLen: 4096
+      dtype: "bfloat16"
+      gpuMemoryUtilization: 0.85
+      enablePrefixCaching: false
+      extraArgs: []
+
+routerSpec:
+  repository: "lmcache/lmstack-router"
+  tag: "latest"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
