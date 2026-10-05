@@ -907,5 +907,37 @@ kubectl apply -f manifests/day1/probe-noruntime.yaml     # run alone
 kubectl apply -f manifests/day1/probe-both.yaml -f manifests/day1/probe-nolimit.yaml
 kubectl describe node g1 | grep -A 10 "Allocated resources"
 ```
+## 2026-10-02 — vLLM on k8s, Day 2: production-stack deployed
+
+**Done:** vllm-stack chart 0.1.13 on k3s, Qwen2.5-1.5B-Instruct (bf16, max-model-len 4096,
+gpu-mem-util 0.85). Completion via router port-forward works. Manifests in vllm-k8s/day2/
+(values-day2.yaml, reference.yaml = helm template output).
+
+**KV cache, predicted vs measured**
+- kv bytes/token = 2 x 28 x 2 x 128 x 2 = 28,672 B (matched the log exactly)
+- Predicted ~160k tokens (range 142k-179k); measured 138,832
+- My non-weight overhead guess (0.5-1.5 GiB) was low; actual was ~1.6 GiB
+  (activations + CUDA graphs + non-torch memory)
+
+**Mistakes and fixes**
+- Image tag needs the `v` prefix (`v0.30.0`); `0.30.0` gives ImagePullBackOff.
+- Pod requests must be <= limits. Helm values overrides replace only the keys you set,
+  so I got a request of 1Gi against a default limit of 1000Mi. Set both.
+- 1 GPU + default RollingUpdate deadlocks: the new pod stays Pending because the old
+  pod holds the GPU. Use `strategy: Recreate`. Switching also required clearing the live
+  `rollingUpdate` field (kubectl patch with rollingUpdate: null) because of Helm's 3-way merge.
+- Don't disable chunked prefill: vLLM warns it may crash or give wrong output.
+  Keeping it on changed KV capacity by only ~0.3%.
+- `helm template --version` must match the installed chart (`helm list`). I rendered
+  with 0.1.3 instead of 0.1.13, so the diff against `helm get manifest` was huge.
+  With the right version the only diff is trailing blank lines.
+- Service port 80 -> targetPort 8000 comes from routerSpec.servicePort/containerPort.
+
+**Observations**
+- Decode ~5.86 ms/token (~171 tok/s) vs roofline ceiling ~4.06 ms (weights / 760 GB/s)
+  = ~70% of memory-bandwidth limit.
+
+**Next:** load test with 32 concurrent requests (predict ~12% KV usage), then start
+hand-writing the manifests using reference.yaml as the checklist.
 
 <!-- New entries go ABOVE this line, newest last. Keep it chronological. -->
