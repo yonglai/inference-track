@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-qwen
+  namespace: vllm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-qwen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-qwen
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["vllm", "serve", "Qwen/Qwen2.5-1.5B-Instruct"]
+          args: ["--host", "0.0.0.0", "--port", "8000", "--max-model-len", "4096", "--dtype", "bfloat16", "--gpu_memory_utilization", "0.85", "--no-enable-prefix-caching"]
+          env:
+            - name: HF_HOME
+              value: /data
+            - name: VLLM_CACHE_ROOT
+              value: /data/vllm-cache
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /data
+      volumes:
+        - name: hf-cache
+          hostPath:
+            path: /home/yonglai/hf-cache-k8s
+            type: Directory
+  
