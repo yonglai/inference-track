@@ -940,4 +940,44 @@ gpu-mem-util 0.85). Completion via router port-forward works. Manifests in vllm-
 **Next:** load test with 32 concurrent requests (predict ~12% KV usage), then start
 hand-writing the manifests using reference.yaml as the checklist.
 
+## 2026-10-11 — Day 3–4, Step 2: Service
+
+Built `vllm-k8s/day3/service.yaml`: ClusterIP `vllm-qwen`, port 80 → targetPort 8000, selector `app.kubernetes.io/name: vllm-qwen`.
+
+**Predictions vs results**
+- Wrong selector: predicted "nothing" for endpoints. Actual: the Service is created fine, the Endpoints object exists with `<none>`, and the EndpointSlice has ports/endpoints unset. `NotFound` would mean there is no Service at all.
+- Which method survives a broken kube-proxy: could not predict. Answer: `port-forward` (it goes API server → kubelet → pod and skips the Service rules). Curl to the ClusterIP needs kube-proxy.
+- Model `id` in `/v1/models`: the string passed to `vllm serve`, unless `--served-model-name` is set.
+
+**Lessons**
+1. Core-group kinds (Service, Pod, ConfigMap, Secret, PVC) use `apiVersion: v1`. `apps/v1` is for Deployment and similar.
+2. Kubernetes does not validate selectors. A typo gives a healthy-looking Service with no endpoints. Check the EndpointSlice (Endpoints is deprecated in v1.33+).
+3. The ClusterIP is virtual. kube-proxy rules rewrite `10.43.66.63:80` to the pod IP:8000 (KUBE-SERVICES → KUBE-SVC → KUBE-SEP → DNAT).
+4. Pod IPs change when a pod is recreated (.154 became .161). Never hard-code them.
+5. `kubectl apply` never deletes. Renaming a Service left `vllm-qwen2` behind. Delete by name.
+6. With no readiness probe the pod is an endpoint as soon as it is Running, so requests are refused during the 28–128 s startup. Step 3 fixes this. `curl -s` hides the error, so use `-sv`.
+
+**Done**: completion through the ClusterIP returned 200 (39 prompt tokens, 24 completion tokens).
+
 <!-- New entries go ABOVE this line, newest last. Keep it chronological. -->
+
+## 2026-10-11 — Day 3–4, Step 2: Service
+
+Built `vllm-k8s/day3/service.yaml`: ClusterIP `vllm-qwen`, port 80 → targetPort 8000, selector `app.kubernetes.io/name: vllm-qwen`.
+
+**Predictions vs results**
+- Wrong selector: predicted "nothing" for endpoints. Actual: the Service is created fine, the Endpoints object exists with `<none>`, and the EndpointSlice has ports/endpoints unset. `NotFound` would mean there is no Service at all.
+- Which method survives a broken kube-proxy: could not predict. Answer: `port-forward` (it goes API server → kubelet → pod and skips the Service rules). Curl to the ClusterIP needs kube-proxy.
+- Model `id` in `/v1/models`: the string passed to `vllm serve`, unless `--served-model-name` is set.
+
+**Lessons**
+1. Core-group kinds (Service, Pod, ConfigMap, Secret, PVC) use `apiVersion: v1`. `apps/v1` is for Deployment and similar.
+2. Kubernetes does not validate selectors. A typo gives a healthy-looking Service with no endpoints. Check the EndpointSlice (Endpoints is deprecated in v1.33+).
+3. The ClusterIP is virtual. kube-proxy rules rewrite `10.43.66.63:80` to the pod IP:8000 (KUBE-SERVICES → KUBE-SVC → KUBE-SEP → DNAT).
+4. Pod IPs change when a pod is recreated (.154 became .161). Never hard-code them.
+5. `kubectl apply` never deletes. Renaming a Service left `vllm-qwen2` behind. Delete by name.
+6. With no readiness probe the pod is an endpoint as soon as it is Running, so requests are refused during the 28–128 s startup. Step 3 fixes this. `curl -s` hides the error, so use `-sv`.
+
+**Done**: completion through the ClusterIP returned 200 (39 prompt tokens, 24 completion tokens).
+
+TODO: `kubectl -n vllm delete svc vllm-qwen2`
