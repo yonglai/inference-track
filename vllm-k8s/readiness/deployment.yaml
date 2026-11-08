@@ -1,0 +1,71 @@
+# Day 3 deployment + readiness experiment. Same name as day3/deployment.yaml, so applying this REPLACES it.
+# Only the readiness probe differs from day 3: it runs decode_probe.py, and PROBE_MODE picks what it checks
+#   PROBE_MODE=health -> GET /health only (same check as day 3's httpGet, via the same exec machinery)
+#   PROBE_MODE=decode -> /health plus a real 4-token completion
+# startupProbe and livenessProbe stay as in day 3 (httpGet /health), so only readiness changes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-qwen
+  namespace: vllm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm-qwen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm-qwen
+    spec:
+      runtimeClassName: nvidia
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.30.0
+          command: ["sh", "/experiment/entrypoint.sh"]
+          env:
+            - name: HF_HOME
+              value: /data
+            - name: VLLM_CACHE_ROOT
+              value: /data/vllm-cache
+            - name: PROBE_MODE        # health | decode
+              value: "health"
+            - name: BREAK_NVCC        # 0 | 1
+              value: "0"
+            - name: VLLM_USE_FLASHINFER_SAMPLER   # make FlashInfer's sampler JIT path likely; harmless if ignored
+              value: "1"
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /data
+            - name: experiment
+              mountPath: /experiment
+          startupProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["python3", "/experiment/decode_probe.py"]
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3      # 30 s of failures, then out of the endpoints
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 10
+            failureThreshold: 6
+            timeoutSeconds: 3
+      volumes:
+        - name: hf-cache
+          hostPath:
+            path: /home/yonglai/hf-cache-k8s
+            type: Directory
+        - name: experiment
+          configMap:
+            name: readiness-experiment
