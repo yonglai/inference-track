@@ -23,6 +23,11 @@ Only the readiness probe differs from day 3. Startup and liveness stay `httpGet 
 - `jit_monitor_mode='warn'`: a JIT compile during inference only logs a warning.
 - Consequence: startup (and `/health`) may never touch the sampler kernel. The probe must send top_p/top_k (greedy skips that path), so `decode_probe.py` now defaults to `PROBE_SAMPLING=sampled`.
 
+## Step 0b result (second discovery)
+- The image has `flashinfer-jit-cache 0.6.18.post1+cu130` (prebuilt kernels). First sampled request was 42 ms, no JIT compile logged.
+- So with the stock image, hiding nvcc (S1) is expected to change nothing: the cache shields the sampler.
+- New scenario S1b: `REMOVE_JIT_CACHE=1` + `BREAK_NVCC=1` models an image without the prebuilt cache. This is a constructed scenario, say so in the post.
+
 ## Step 0: discovery (done, kept for reference)
 Start from your running day 3 pod and learn what the default startup already covers:
 ```bash
@@ -55,6 +60,10 @@ Repeat with `PROBE_MODE=decode`: same, plus how many seconds the decode probe ad
 Revised prediction after Step 0: warmup compiled nothing (0.00s), so the pod probably starts and `/health` is 200, but a sampled request (top_p/top_k) fails or stalls on first use.
 If so, S1 is already the key result: health-only is ready and broken, decode probe never goes ready. Also send a greedy request (temperature 0) by hand and note whether it still works.
 If the pod instead crashes at startup, record that (default path caught it). If sampled requests work anyway, the kernel was prebuilt or cached: check `ls ~/.cache/flashinfer` in the pod.
+
+**S1b no prebuilt cache and no compiler** `REMOVE_JIT_CACHE=1`, `BREAK_NVCC=1`; first with `health`, then `decode`.
+Also run `REMOVE_JIT_CACHE=1` alone (nvcc present) to see how long the first sampled request takes while it compiles, and whether the probe's 10 s timeout fails during that compile.
+Expectation: startup and `/health` succeed, the first sampled request fails or stalls, only the decode probe notices.
 
 **S2 breakage that survives startup** (the interesting one, needs discovery)
 Goal: pod passes startup, `/health` is 200, but some request shape fails. Candidates, try in order:

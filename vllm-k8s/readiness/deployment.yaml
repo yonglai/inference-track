@@ -34,6 +34,8 @@ spec:
               value: "health"
             - name: BREAK_NVCC        # 0 | 1
               value: "0"
+            - name: REMOVE_JIT_CACHE  # 0 | 1  (1 = uninstall prebuilt flashinfer-jit-cache)
+              value: "0"
             - name: VLLM_USE_FLASHINFER_SAMPLER   # make FlashInfer's sampler JIT path likely; harmless if ignored
               value: "1"
           ports:
