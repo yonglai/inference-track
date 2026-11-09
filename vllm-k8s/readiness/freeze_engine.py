@@ -26,7 +26,9 @@ def find():
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ("freeze", "thaw"):
-        print(__doc__)
+        got = sys.argv[1] if len(sys.argv) > 1 else "(nothing)"
+        print(f"error: unknown command {got!r}, expected 'freeze' or 'thaw'. Nothing was sent.")
+        print("usage: python3 /experiment/freeze_engine.py freeze|thaw [--all]")
         return 2
     sig = signal.SIGSTOP if sys.argv[1] == "freeze" else signal.SIGCONT
     hits = find()
