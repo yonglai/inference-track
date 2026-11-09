@@ -1,6 +1,6 @@
 ## 2026-11-08 — Week 11 — readiness probe: /health vs dummy decode
 
-**Machine:** G1 (k3s, single GPU, sm_86 per the FlashInfer build path; driver: <fill>)
+**Machine:** G1 (k3s, single GPU: GeForce RTX 3080 10 GB, sm_86; driver 595.91.07, CUDA 13.2 per nvidia-smi)
 **Question:** What does an exec readiness probe that runs a real 4-token sampled completion catch that the default `/health` check does not?
 
 **Setup**
@@ -44,5 +44,5 @@
 - First user request was ~29 ms behind the decode probe vs 40-43 ms behind the health probe: the probe's own request warms the path (n=1 for decode).
 - **Confusions to revisit:** why `/health` stays 200 when EngineCore is stopped (API server and engine are separate processes); which warmup step builds the sampler (read the rest of the traceback in the crash log).
 
-- **Repro:** `vllm-k8s/readiness/README.md` · commit <fill> · client `./client_loop.sh http://$SVC` · freeze `freeze_engine.py freeze|thaw`
+- **Repro:** `vllm-k8s/readiness/README.md` · commit d805a4bd003ec7ef5b1e13d5afda1475a389a03b · client `./client_loop.sh http://$SVC` · freeze `freeze_engine.py freeze|thaw`
 
