@@ -25,6 +25,7 @@
 | S3 direct check, frozen | health | `/health` returned 200 in 0.018 s; sampled completion timed out at 5 s |
 | S1 nvcc hidden (cache present) | health | no effect: READY at 45 s, requests 200 at ~29 ms |
 | S1b nvcc hidden + flashinfer-jit-cache removed | health and decode | EngineCore fails at startup after ~41 s (ninja exit 127 building `sampling` for sm_86), CrashLoopBackOff, never READY; Service had no endpoints throughout (Recreate) |
+| S1c nvcc present, flashinfer-jit-cache removed (cold JIT) | decode | READY at ~95 s after container start (vs 45-50 s); `init engine` 66.14 s vs 11.5-13.2 s baseline, so ~53-55 s extra; startup probe logged 19 connection-refused failures (~90 s) then passed; 0 restarts; built sampling.so (3 .cuda.o files) in /root/.cache/flashinfer, inside the container filesystem so lost on restart |
 
 **Baseline compared against:** S0 healthy, same pod spec, health-only readiness
 **Delta:** frozen engine: removed from endpoints after 37 s with decode probe vs never (108 s+ observed) with health only
